@@ -1,0 +1,6 @@
+# A git install checks this package out on the user's machine; keep the line
+# endings the sources were written with, so the bundle a clone produces is
+# byte-identical to the one in the working tree.
+* text=auto eol=lf
+*.svg text eol=lf
+*.json text eol=lf
