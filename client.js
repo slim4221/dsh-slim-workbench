@@ -202,6 +202,12 @@ window.__ModuleLoader__.load({
       launchBuilderDetected: '检测到',
       launchNoBackendBuild: 'no pom.xml or build.gradle here',
       launchBuilderDetected: 'detected',
+      launchNoNvm: 'no nvm on this machine: entries cannot pin a version',
+      launchNoNodeVersions: 'no version installed yet: entries follow the machine default',
+      launchNvmAbsentNote: 'No nvm on this machine: Node version pinning is unavailable, every entry runs on the system default Node.',
+      launchNoNvm: '这台机器没装 nvm：无法按项目锁定 Node 版本',
+      launchNoNodeVersions: '还没装任何版本：只能跟随系统默认 Node',
+      launchNvmAbsentNote: '这台机器没装 nvm：不能按项目锁定 Node 版本，所有项目都用系统默认 Node 启动。',
       launchJavaLabel: 'Java',
       launchJavaMissing: 'no java on PATH',
       launchBackendEmpty: 'No backend project yet.',
@@ -606,6 +612,7 @@ window.__ModuleLoader__.load({
 .lch-batch-state[data-kind="error"] { color: var(--dsw-alias-state-error-primary); }
 .lch-hint[data-kind="ok"] { color: var(--dsw-alias-state-success-primary); }
 .lch-hint[data-kind="error"] { color: var(--dsw-alias-state-error-primary); }
+.lch-hint[data-kind="notice"] { color: var(--dsw-alias-state-warn-primary); }
 .lch-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .lch-seg { display: inline-flex; gap: 2px; padding: 3px; border: 0.5px solid var(--dsw-alias-border-l4, var(--dsw-alias-border-l2)); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-2); }
 .lch-seg > button { flex: 1 1 0; height: 24px; padding: 0 10px; font: inherit; font-size: 12px; color: var(--dsw-alias-label-secondary); background: transparent; border: 0; border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; }
@@ -1317,6 +1324,7 @@ window.__ModuleLoader__.load({
         ? data.payload.entries.filter((entry) => (entry.stack ?? 'frontend') === stack)
         : []
       const nodeVersions = Array.isArray(data.payload?.nodeVersions) ? data.payload.nodeVersions : []
+      const nvmInfo = data.payload?.nvm ?? null
       const busy = pending !== null
 
       /**
@@ -1663,6 +1671,9 @@ window.__ModuleLoader__.load({
               nodeVersions.map((version) => h('option', { key: version, value: version }, `v${version}`)),
             ),
           ),
+          nvmInfo === null || nvmInfo.available === true
+            ? (nodeVersions.length === 0 ? h('p', { className: 'lch-hint' }, t('launchNoNodeVersions')) : null)
+            : h('p', { className: 'lch-hint', 'data-kind': 'error' }, t('launchNoNvm')),
           ),
           h('div', { className: 'lch-grid2' },
             h('label', { className: 'lch-field' },
@@ -2225,6 +2236,9 @@ window.__ModuleLoader__.load({
             ),
             h('tbody', null, entries.map((entry) => entryRows(entry))),
           ))
+        }
+        if (nvmInfo !== null && nvmInfo.available === false && entries.length > 0) {
+          parts.unshift(h('p', { className: 'lch-hint', key: 'nvm-absent', 'data-kind': 'notice' }, t('launchNvmAbsentNote')))
         }
         return h(React.Fragment, null, parts)
       }

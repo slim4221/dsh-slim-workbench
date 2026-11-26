@@ -311,6 +311,7 @@ export function apply(ctx, config) {
   const launcher = () => ({
     defaultProjectPath: defaultProjectPathOf(ctx),
     node: {
+      install: () => nvm.installInfo(),
       installed: () => installedVersions(overrides),
       current: () => currentLinkedVersion(overrides),
       directory: (version) => versionDirectory(version, overrides),

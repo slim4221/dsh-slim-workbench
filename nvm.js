@@ -564,6 +564,49 @@ function sortSerials(serials) {
 }
 
 /**
+ * Whether this machine has a Node version manager at all, read synchronously.
+ *
+ * The launcher asks this before offering a pinned version: "no nvm" and "nvm has no
+ * such version" are different problems, and only the second one is solved by
+ * installing a version. Nothing here runs a process, so polling stays cheap.
+ * @param {{ nvmHome?: string, nvmExe?: string, symlink?: string }} [overrides] patch config.
+ * @returns {{ supported: boolean, available: boolean, managers: string[], home: string, symlink: string, versions: number, checked: string[] }} what exists.
+ */
+export function installInfo(overrides = {}) {
+  if (process.platform !== 'win32') {
+    // POSIX managers switch per shell; report whichever stores exist.
+    const managers = []
+    let versions = 0
+    for (const layout of posixLayouts()) {
+      const serials = posixSerials(layout)
+      if (serials.length === 0) continue
+      managers.push(layout.manager)
+      versions += serials.length
+    }
+    return {
+      supported: false,
+      available: managers.length > 0,
+      managers: [...new Set(managers)],
+      home: '',
+      symlink: '',
+      versions,
+      checked: [],
+    }
+  }
+  const install = resolveInstall(overrides)
+  const versions = listVersions(install.nvmHome).length
+  return {
+    supported: true,
+    available: install.nvmExe !== null,
+    managers: install.nvmExe === null ? [] : ['nvm-windows'],
+    home: install.nvmHome,
+    symlink: install.symlink,
+    versions,
+    checked: install.checked,
+  }
+}
+
+/**
  * Versions the machine has installed, newest first, read synchronously.
  *
  * The launcher asks this to offer one version per entry; it starts no process.

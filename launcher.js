@@ -789,13 +789,22 @@ function snapshotOf(entry, context, fresh = false) {
       text: `这条用 ${entry.pm}，但目录里是 ${facts.lockfile.name}`,
     })
   }
-  if (entry.nodeVersion !== null && typeof context.node?.installed === 'function'
-    && !context.node.installed().includes(entry.nodeVersion)) {
-    warnings.push({
-      code: 'node-missing',
-      level: 'block',
-      text: `锁定版本 v${entry.nodeVersion} 未安装：先到 Node.js 系统安装或改回跟随工作台`,
-    })
+  if (entry.nodeVersion !== null && typeof context.node?.installed === 'function') {
+    const installed = context.node.installed()
+    const info = typeof context.node?.install === 'function' ? context.node.install() : null
+    if (info !== null && info.available === false) {
+      warnings.push({
+        code: 'nvm-absent',
+        level: 'notice',
+        text: `这台机器没装 nvm：锁定的 v${entry.nodeVersion} 不生效，会用系统默认 Node`,
+      })
+    } else if (!installed.includes(entry.nodeVersion)) {
+      warnings.push({
+        code: 'node-missing',
+        level: 'block',
+        text: `锁定版本 v${entry.nodeVersion} 未安装：先到 Node.js 系统安装或改回跟随工作台`,
+      })
+    }
   }
   return {
     at: Date.now(),
@@ -870,22 +879,33 @@ export async function readLauncherState(context) {
   })
   if (backfilled) writeEntries(entries)
   const installed = typeof context.node?.installed === 'function' ? context.node.installed() : []
+  const nvm = typeof context.node?.install === 'function' ? context.node.install() : null
   return {
     defaultProjectPath: context.defaultProjectPath ?? context.defaultCwd ?? '',
     dataFile: dataFile(),
     lanAddress: lanAddress(),
+    nvm,
     nodeVersions: installed,
     currentVersion: typeof context.node?.current === 'function' ? context.node.current() : null,
     entries: entries.map((entry) => {
       const warnings = [...(entry.facts?.warnings ?? [])]
       // Kept live: installing or removing a version changes this without touching the entry.
-      if (entry.nodeVersion !== null && installed.length > 0 && !installed.includes(entry.nodeVersion)
-        && !warnings.some((warning) => warning.code === 'node-missing')) {
-        warnings.push({
-          code: 'node-missing',
-          level: 'block',
-          text: `锁定版本 v${entry.nodeVersion} 未安装：先到 Node.js 系统安装或改回跟随工作台`,
-        })
+      if (entry.nodeVersion !== null && !warnings.some((warning) => warning.code === 'node-missing')) {
+        if (nvm !== null && nvm.available === false) {
+          // No manager at all: the pin cannot apply, and "version not installed" would
+          // send the user looking for a version that could never be used here.
+          warnings.push({
+            code: 'nvm-absent',
+            level: 'notice',
+            text: `这台机器没装 nvm：锁定的 v${entry.nodeVersion} 不生效，会用系统默认 Node`,
+          })
+        } else if (installed.length > 0 && !installed.includes(entry.nodeVersion)) {
+          warnings.push({
+            code: 'node-missing',
+            level: 'block',
+            text: `锁定版本 v${entry.nodeVersion} 未安装：先到 Node.js 系统安装或改回跟随工作台`,
+          })
+        }
       }
       return {
         ...entry,
