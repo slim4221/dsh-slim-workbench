@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Slim 工作台",
-    "description": "Slim 工作台是侧边栏的一个常驻面板，用来放这台机器上「可切换、可操作」的系统：切版本、跑命令这类动作，不必再开终端或翻文档。\n\n入口只有一个：侧边栏「插件」「定时任务」之后的那个四格图标（面板标题「Slim 工作台」）。点开在中间栏渲染，不需要先有会话，可以在任何会话里随手打开。\n\n一个系统就是面板左侧「系统」里的一项，各自带一整块内容区，互不干扰。现在是两个：\n\n**Node.js** —— 顶部状态条显示当前链接的版本、nvm 版本和两个路径；「已安装」页可切换或卸载本机版本（正在用的那个不能切、也不能卸）；「可安装」页列出 nodejs.org 上已发布且带 Windows 构建的版本，附 LTS 通道与发布日期，支持搜索、只看 LTS、隐藏已安装三种过滤。这一项额外给智能体一个 node_version 工具（action 为 list / releases / use / install / uninstall），所以也可以让我帮你查、帮你切。\n\n**一键启动** —— 填名称、命令（例如 npm run dev）和目录即可添加；点「启动」运行、点「日志」看输出、点「停止」结束。条目存在 $DSH_HOME/slim-workbench/launchers.json，不写你的 profile 配置；关掉面板不影响进程，插件被卸载时会停掉所有运行中的进程，「停止」会杀掉整棵进程树。这一项刻意没有给智能体工具：它执行的是你自己写的命令，启动应当由你点。\n\n面板本身是个壳：要加第三个系统，只是「系统」里多一项（一个 id、一段文案、一个组件），壳不用改。\n\n边界：Node.js 系统需要 Windows 上的 nvm-windows，其他平台上它会说明这种方式不可用，一键启动照常可用。打开「可安装」页会读取 https://nodejs.org/dist/index.json 并缓存十分钟，安装时通过 nvm 从该站下载（每个版本约 30 MB）；除此外不向外发送数据，页面只与本机 Harness 服务的本插件路由通信。nvm 装在非默认位置时，可在本插件的行配置里设 nvmHome / symlink，GUI 没有对应的表单。"
+    "description": "常驻 Harness 侧边栏的面板，托管这台机器上的本地开发系统：Node 版本管理、前端项目启动、后端 Spring Boot 启动。\n\n**Node 管理**：列出 nvm-windows 管理的版本、显示当前版本，并切换 / 安装 / 卸载。macOS 与 Linux 上改为列出 nvm·fnm·volta·asdf 检测到的版本，并说明那里「版本属于 shell」。同时给智能体一个 `node_version` 工具。\n\n**前端项目管理**：选好文件夹后读一次，列出全部 `scripts`；包管理器与脚本**都要你自己选，不预选**。启动后端口应答即显示「就绪」并给出局域网地址。**批量启动**按顺序逐条启动，等上一条端口就绪再起下一条。\n\n**后端项目管理**：通过 Maven / Gradle 启动 Spring Boot，Profile 从项目自带的 `application-*.yaml` 选出，端口从 `server.port` 读出；Profile 以 `SPRING_PROFILES_ACTIVE` 传入，就绪预算 5 分钟。\n\n项目目录对本插件**只读**：只读清单、锁文件、配置与 `git status`，只写 `$DSH_HOME/slim-workbench/launchers.json`。新装插件列表为空，拷贝该 JSON 即可把条目带过去。",
+    "detail": "docs/DETAIL.zh.md"
   }
 }

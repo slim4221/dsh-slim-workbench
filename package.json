@@ -1,6 +1,6 @@
 {
   "name": "@local/slim-workbench",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Slim 工作台：侧边栏常驻的本地开发工作台。Node 管理 + 前端项目管理 + 后端项目管理，项目目录只读。",
@@ -17,8 +17,10 @@
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
+    "docs",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -33,5 +35,22 @@
         "@deepseek-ai/dsh-client-ui-sidebar"
       ]
     }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "nvm",
+    "launcher",
+    "spring-boot",
+    "workbench"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slim4221/dsh-slim-workbench.git"
+  },
+  "homepage": "https://github.com/slim4221/dsh-slim-workbench#readme",
+  "bugs": {
+    "url": "https://github.com/slim4221/dsh-slim-workbench/issues"
   }
 }
