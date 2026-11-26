@@ -1,0 +1,8 @@
+# Installed by npm/pnpm when this package is consumed as a dependency.
+node_modules/
+
+# Packed artifacts (`npm pack`) and any local scratch files.
+*.tgz
+*.log
+.DS_Store
+Thumbs.db

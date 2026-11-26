@@ -1,0 +1,4 @@
+# slim-workbench bundle（Slim 工作台）：one Host row; the browser half rides the same package.
+- insert:
+    - id: slim-workbench
+      name: '@local/slim-workbench'

@@ -1,0 +1,37 @@
+{
+  "name": "@local/slim-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Slim 工作台：侧边栏常驻的可扩展工作台面板，一个入口托管这台机器上可切换、可操作的系统（当前：Node.js 版本管理 + 一键启动命令）。",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "nvm.js",
+    "launcher.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}
