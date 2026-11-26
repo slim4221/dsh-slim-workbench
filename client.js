@@ -187,6 +187,25 @@ window.__ModuleLoader__.load({
       removeConfirmRunning: 'It is running: its whole process tree is stopped first.',
       removing: 'Deleting...',
       launchConfirmRemove: 'Delete?',
+      backendTitle: 'Backend projects',
+      backendSubtitle: 'Spring Boot services: pick the project and a profile, then start it.',
+      launchNeedBuilder: 'Pick a build tool first',
+      launchBuilderLabel: 'Build tool',
+      launchBuilderMaven: 'Maven',
+      launchBuilderGradle: 'Gradle',
+      launchGoalLabel: 'Start goal',
+      launchProfileLabel: 'Profile',
+      launchProfileFollow: 'Default (as configured)',
+      launchProfileHint: 'Spring profiles found in src/main/resources. Default uses spring.profiles.active.',
+      launchColProfile: 'Profile',
+      launchNoBackendBuild: '这里没有 pom.xml 或 build.gradle',
+      launchBuilderDetected: '检测到',
+      launchNoBackendBuild: 'no pom.xml or build.gradle here',
+      launchBuilderDetected: 'detected',
+      launchJavaLabel: 'Java',
+      launchJavaMissing: 'no java on PATH',
+      launchBackendEmpty: 'No backend project yet.',
+      launchFrontendEmpty: 'No frontend project yet.',
       launchBatch: 'Batch start',
       batchTitle: 'Batch start',
       batchHint: 'Entries start in priority order: each one must answer on its port before the next starts, so a project the rest depend on (an SSO service, for example) can go first.',
@@ -339,6 +358,21 @@ window.__ModuleLoader__.load({
       removeConfirmRunning: '它正在运行：会先停掉整棵进程树。',
       removing: '删除中…',
       launchConfirmRemove: '确认删除？',
+      backendTitle: '后端项目管理',
+      backendSubtitle: 'Spring Boot 服务：选好项目和 profile，点一下就起。',
+      launchNeedBuilder: '请先选择构建工具',
+      launchBuilderLabel: '构建工具',
+      launchBuilderMaven: 'Maven',
+      launchBuilderGradle: 'Gradle',
+      launchGoalLabel: '启动目标',
+      launchProfileLabel: 'Profile',
+      launchProfileFollow: '默认（跟随项目配置）',
+      launchProfileHint: '从 src/main/resources 里读到的 Spring profile；「默认」使用 spring.profiles.active。',
+      launchColProfile: 'Profile',
+      launchJavaLabel: 'Java',
+      launchJavaMissing: 'PATH 里没有 java',
+      launchBackendEmpty: '还没有后端项目。',
+      launchFrontendEmpty: '还没有前端项目。',
       launchBatch: '批量启动',
       batchTitle: '批量启动',
       batchHint: '按优先级从小到大依次启动：上一个端口就绪后才启动下一个 —— 所以被其他项目依赖的服务（例如 SSO）要排在前面。',
@@ -1101,6 +1135,7 @@ window.__ModuleLoader__.load({
      */
     function LauncherSystem(props) {
       const t = translator(props)
+      const stack = props.stack === 'backend' ? 'backend' : 'frontend'
       const [data, setData] = React.useState({ status: 'loading', payload: null, error: null })
       const [form, setForm] = React.useState(null)
       const [pending, setPending] = React.useState(null)
@@ -1163,6 +1198,8 @@ window.__ModuleLoader__.load({
         port: '',
         priority: 1,
         batchEnabled: true,
+        builder: null,
+        profile: null,
       })
 
       /**
@@ -1182,6 +1219,8 @@ window.__ModuleLoader__.load({
         port: entry.port === null || entry.port === undefined ? '' : String(entry.port),
         priority: entry.priority ?? 0,
         batchEnabled: entry.batchEnabled !== false,
+        builder: entry.builder ?? null,
+        profile: entry.profile ?? null,
       })
 
       // Read the folder's facts (scripts, lockfile, git, warnings) whenever the path changes.
@@ -1194,13 +1233,22 @@ window.__ModuleLoader__.load({
         const controller = new AbortController()
         setInsp((current) => ({ status: 'loading', facts: current.facts, error: null }))
         const timer = setTimeout(() => {
-          readJson(`${ROUTES.launchInspect}?dir=${encodeURIComponent(directory)}`, {
+          readJson(`${ROUTES.launchInspect}?dir=${encodeURIComponent(directory)}&stack=${stack}`, {
             headers: { accept: 'application/json' },
             signal: controller.signal,
           }).then(
             (payload) => {
-              if (payload?.ok === true) setInsp({ status: 'ready', facts: payload, error: null })
-              else setInsp({ status: 'error', facts: null, error: String(payload?.message ?? '') })
+              if (payload?.ok === true) {
+                setInsp({ status: 'ready', facts: payload, error: null })
+                const declared = payload?.backend?.serverPort
+                if (stack === 'backend' && typeof declared === 'number') {
+                  setForm((current) => (current === null || current.port !== '')
+                    ? current
+                    : { ...current, port: String(declared) })
+                }
+              } else {
+                setInsp({ status: 'error', facts: null, error: String(payload?.message ?? '') })
+              }
             },
             (error) => {
               if (!controller.signal.aborted) {
@@ -1265,7 +1313,9 @@ window.__ModuleLoader__.load({
         }
       }, [token])
 
-      const entries = Array.isArray(data.payload?.entries) ? data.payload.entries : []
+      const entries = Array.isArray(data.payload?.entries)
+        ? data.payload.entries.filter((entry) => (entry.stack ?? 'frontend') === stack)
+        : []
       const nodeVersions = Array.isArray(data.payload?.nodeVersions) ? data.payload.nodeVersions : []
       const busy = pending !== null
 
@@ -1334,6 +1384,9 @@ window.__ModuleLoader__.load({
             body: JSON.stringify({
               id: form.id,
               name: form.name,
+              stack,
+              builder: stack === 'backend' ? form.builder : null,
+              profile: stack === 'backend' ? form.profile : null,
               projectPath: form.projectPath,
               kind: form.kind,
               pm: form.pm,
@@ -1429,7 +1482,14 @@ window.__ModuleLoader__.load({
         for (const warning of Array.isArray(facts?.warnings) ? facts.warnings : []) {
           warnings.push({ level: warning.level, text: warning.text })
         }
-        if (form.kind === 'script') {
+        if (stack === 'backend') {
+          if (form.kind === 'script' && form.builder === null) {
+            warnings.push({ level: 'block', text: t('launchNeedBuilder') })
+          }
+          if (form.kind === 'custom' && form.customCommand.trim() === '') {
+            warnings.push({ level: 'block', text: t('launchNeedCommand') })
+          }
+        } else if (form.kind === 'script') {
           if (form.pm === null) warnings.push({ level: 'block', text: t('launchNeedPm') })
           if (form.script === null) warnings.push({ level: 'block', text: t('launchNeedScript') })
         } else if (form.customCommand.trim() === '') {
@@ -1438,14 +1498,28 @@ window.__ModuleLoader__.load({
         if (form.name.trim() === '') warnings.push({ level: 'block', text: t('launchNeedName') })
 
         const scripts = orderedScripts(Array.isArray(facts?.scripts) ? facts.scripts : [])
+        const backendFacts = facts?.backend ?? null
+        const profiles = Array.isArray(backendFacts?.profiles) ? backendFacts.profiles : []
+        const activeProfile = backendFacts?.activeProfile ?? null
+        const detectedBuilder = backendFacts?.maven?.present === true
+          ? 'maven'
+          : backendFacts?.gradle?.present === true ? 'gradle' : null
+        const builderName = (builder) => (builder === 'gradle' ? t('launchBuilderGradle') : t('launchBuilderMaven'))
+        const goalOf = (builder) => (builder === 'gradle' ? 'bootRun' : 'spring-boot:run')
         const blocked = warnings.some((warning) => warning.level === 'block')
         const canSave = !busy && !blocked
         const lockfile = facts?.lockfile ?? null
         const detection = insp.status === 'loading'
           ? t('launchInspecting')
-          : lockfile === null
-            ? t('launchNoLockfile')
-            : fill(t('launchDetected'), { what: lockfile.name })
+          : stack === 'backend'
+            ? detectedBuilder === null
+              ? t('launchNoBackendBuild')
+              : t('launchBuilderDetected') + ' ' + builderName(detectedBuilder)
+                + (backendFacts?.maven?.javaVersion ? ' · Java ' + backendFacts.maven.javaVersion : '')
+                + (backendFacts?.serverPort === null || backendFacts?.serverPort === undefined ? '' : ' · :' + String(backendFacts.serverPort))
+            : lockfile === null
+              ? t('launchNoLockfile')
+              : fill(t('launchDetected'), { what: lockfile.name })
         const followValue = fill(t('launchNodeFollowValue'), {
           version: nodeVersions.length === 0 ? '—' : String(data.payload?.currentVersion ?? nodeVersions[0]),
         })
@@ -1481,6 +1555,60 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('p', { className: 'lch-hint' }, detection),
+          stack === 'backend'
+            ? h(React.Fragment, null,
+              h('div', { className: 'lch-field' },
+                h('span', null, t('launchBuilderLabel')),
+                h('div', { className: 'lch-seg', role: 'group', 'aria-label': t('launchBuilderLabel') },
+                  ['maven', 'gradle'].map((builder) => h('button', {
+                    key: builder,
+                    type: 'button',
+                    'data-on': form.builder === builder ? 'true' : 'false',
+                    onClick: () => { setForm({ ...form, builder }) },
+                  }, builderName(builder))),
+                ),
+              ),
+              form.kind === 'custom'
+                ? h('label', { className: 'lch-field' },
+                  h('span', null, t('launchCustomLabel')),
+                  h('input', {
+                    className: 'lch-input ndv-mono',
+                    value: form.customCommand,
+                    placeholder: 'mvn spring-boot:run -Dspring-boot.run.profiles=dev',
+                    onChange: (event) => { setForm({ ...form, customCommand: event.target.value }) },
+                  }),
+                )
+                : h(React.Fragment, null,
+                  h('div', { className: 'lch-grid2' },
+                    h('label', { className: 'lch-field' },
+                      h('span', null, t('launchGoalLabel')),
+                      h('input', {
+                        className: 'lch-input ndv-mono',
+                        readOnly: true,
+                        value: form.builder === null ? '' : goalOf(form.builder),
+                        placeholder: goalOf('maven'),
+                      }),
+                    ),
+                    h('label', { className: 'lch-field' },
+                      h('span', null, t('launchProfileLabel')),
+                      h('select', {
+                        className: 'lch-select',
+                        value: form.profile ?? '',
+                        onChange: (event) => {
+                          const profile = event.target.value === '' ? null : event.target.value
+                          setForm({ ...form, profile })
+                        },
+                      },
+                        h('option', { value: '' }, t('launchProfileFollow')),
+                        profiles.map((profile) => h('option', { key: profile, value: profile },
+                          profile === activeProfile ? profile + ' (' + t('launchCurrent') + ')' : profile)),
+                      ),
+                    ),
+                  ),
+                  h('p', { className: 'lch-hint' }, t('launchProfileHint')),
+                ),
+            )
+            : h(React.Fragment, null,
           h('label', { className: 'lch-field' },
             h('span', null, t('launchScriptLabel')),
             h('select', {
@@ -1534,6 +1662,7 @@ window.__ModuleLoader__.load({
               h('option', { value: '' }, followValue),
               nodeVersions.map((version) => h('option', { key: version, value: version }, `v${version}`)),
             ),
+          ),
           ),
           h('div', { className: 'lch-grid2' },
             h('label', { className: 'lch-field' },
@@ -1665,7 +1794,12 @@ window.__ModuleLoader__.load({
                 : h('span', { className: 'lch-dim' }, '—'),
             ),
             h('td', { className: 'lch-cell-mono lch-ellipsis', title: String(entry.command ?? '') }, String(entry.command ?? '')),
-            h('td', { className: 'lch-cell-mono' }, nodeText),
+            h('td', { className: 'lch-cell-mono' },
+              stack === 'backend'
+                ? (entry.profile === null || entry.profile === undefined
+                  ? h('span', { className: 'lch-dim' }, t('launchProfileFollow'))
+                  : entry.profile)
+                : nodeText),
             h('td', null, links.length === 0
               ? h('span', { className: 'lch-dim lch-cell-mono' },
                 effectivePort === null ? '—' : `:${effectivePort}`)
@@ -2068,7 +2202,8 @@ window.__ModuleLoader__.load({
         const parts = []
         if (entries.length === 0) {
           parts.push(h('div', { className: 'ndv-empty', key: 'empty' },
-            h('p', { className: 'ndv-empty-text' }, t('launchEmpty')),
+            h('p', { className: 'ndv-empty-text' },
+              stack === 'backend' ? t('launchBackendEmpty') : t('launchFrontendEmpty')),
             h('button', {
               type: 'button',
               className: 'ndv-button lch-primary',
@@ -2083,7 +2218,7 @@ window.__ModuleLoader__.load({
                 h('th', null, t('launchColState')),
                 h('th', null, t('launchColBranch')),
                 h('th', null, t('launchColScript')),
-                h('th', null, t('launchColNode')),
+                h('th', null, stack === 'backend' ? t('launchColProfile') : t('launchColNode')),
                 h('th', null, t('launchColPort')),
                 h('th', { className: 'ndv-col-actions' }, t('launchColActions')),
               ),
@@ -2100,8 +2235,8 @@ window.__ModuleLoader__.load({
         h('div', { className: 'ndv-pinned' },
           h('div', { className: 'lch-head' },
             h('div', { className: 'ndv-head' },
-              h('h2', { className: 'ndv-head-title' }, t('launchTitle')),
-              h('p', { className: 'ndv-head-sub' }, t('launchSubtitle')),
+              h('h2', { className: 'ndv-head-title' }, stack === 'backend' ? t('backendTitle') : t('launchTitle')),
+              h('p', { className: 'ndv-head-sub' }, stack === 'backend' ? t('backendSubtitle') : t('launchSubtitle')),
             ),
             h('div', { className: 'lch-headactions' },
               form === null && batchOpen === false
@@ -2150,9 +2285,14 @@ window.__ModuleLoader__.load({
      * The systems this workbench hosts. Adding one is one entry: a stable id, its
      * copy keys, and the component that renders the pane (head included).
      */
+    /** A launcher pane for one stack: the same engine, filtered to that stack. */
+    const FrontendSystem = (props) => h(LauncherSystem, { ...props, stack: 'frontend' })
+    const BackendSystem = (props) => h(LauncherSystem, { ...props, stack: 'backend' })
+
     const SYSTEMS = [
       { id: 'node', titleKey: 'title', component: NodeSystem },
-      { id: 'launch', titleKey: 'launchTitle', component: LauncherSystem },
+      { id: 'frontend', titleKey: 'launchTitle', component: FrontendSystem },
+      { id: 'backend', titleKey: 'backendTitle', component: BackendSystem },
     ]
 
     /**

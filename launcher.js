@@ -16,7 +16,7 @@
  */
 
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import os from 'node:os'
@@ -35,9 +35,18 @@ const TAIL_LINES = 1
 const NAME_LIMIT = 60
 const CUSTOM_LIMIT = 500
 const SCRIPT_LIMIT = 64
+const PROFILE_LIMIT = 64
 
 /** The package managers an entry may pick, and how a script is appended to each. */
 const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun']
+/** Build tools a backend entry can start through. */
+const BUILDERS = ['maven', 'gradle']
+
+/** The stacks the workbench manages: one shared engine, two panes. */
+const STACKS = ['frontend', 'backend']
+
+/** The start goal each builder runs, by default. */
+const BUILDER_GOALS = { maven: 'spring-boot:run', gradle: 'bootRun' }
 
 /** Priority range: smaller starts earlier; `0` is the most urgent level. */
 const PRIORITY_MIN = 0
@@ -52,6 +61,8 @@ const PORT_MAX = 65535
 /** How often a starting run's port is probed, and how long that is worth doing. */
 const READY_POLL_MS = 1000
 const READY_TIMEOUT_MS = 3 * 60 * 1000
+/** A backend entry builds before it listens, so it gets a longer budget. */
+const READY_TIMEOUT_BACKEND_MS = 5 * 60 * 1000
 
 /** Connect timeout for one port probe: a listening socket answers instantly. */
 const PROBE_TIMEOUT_MS = 400
@@ -247,18 +258,26 @@ function normalizeEntry(raw, index) {
   // projectPath is the project directory; a legacy cwd key is still honored.
   const projectPath = firstText(raw.projectPath) ?? firstText(raw.cwd) ?? os.homedir()
   const legacy = firstText(raw.command)
+  const stack = STACKS.includes(raw.stack) ? raw.stack : 'frontend'
+  const builder = BUILDERS.includes(raw.builder) ? raw.builder : null
+  const goal = firstText(raw.goal) ?? null
+  const profile = firstText(raw.profile) ?? null
   const pm = PACKAGE_MANAGERS.includes(raw.pm) ? raw.pm : null
   const script = firstText(raw.script) ?? null
   const custom = firstText(raw.customCommand) ?? null
   let kind = raw.kind === 'script' ? 'script' : 'custom'
-  if (kind === 'script' && (pm === null || script === null)) kind = 'custom'
+  if (kind === 'script' && stack === 'frontend' && (pm === null || script === null)) kind = 'custom'
   const customCommand = kind === 'custom' ? custom ?? legacy : custom
   if (kind === 'custom' && customCommand === null) return null
   return {
     id: firstText(raw.id) ?? randomUUID(),
     name: name.slice(0, NAME_LIMIT),
     projectPath,
+    stack,
     kind,
+    builder: stack === 'backend' ? builder : null,
+    goal: stack === 'backend' && kind === 'script' ? goal ?? (builder === null ? null : BUILDER_GOALS[builder]) : null,
+    profile: stack === 'backend' ? profile : null,
     pm: kind === 'script' ? pm : pm,
     script: kind === 'script' ? script : null,
     customCommand: kind === 'custom' ? customCommand : null,
@@ -312,8 +331,18 @@ function writeEntries(entries) {
  * @returns {string} the shell command.
  */
 function commandOf(entry) {
-  if (entry.kind === 'script' && entry.pm !== null && entry.script !== null) {
-    return `${entry.pm} run ${entry.script}`
+  if (entry.kind === 'script') {
+    if (entry.stack === 'backend') {
+      if (entry.builder === null) return entry.customCommand ?? ''
+      const goal = entry.goal ?? BUILDER_GOALS[entry.builder] ?? ''
+      // The wrapper is only used when it is complete; a half-copied mvnw fails before
+      // it runs Maven, and the global executable is what this machine actually has.
+      const launcher = entry.builder === 'gradle'
+        ? (process.platform === 'win32' ? 'gradlew.bat' : './gradlew')
+        : (process.platform === 'win32' ? 'mvn' : 'mvn')
+      return `${launcher} ${goal}`
+    }
+    if (entry.pm !== null && entry.script !== null) return `${entry.pm} run ${entry.script}`
   }
   return entry.customCommand ?? ''
 }
@@ -443,7 +472,7 @@ function startReadinessWatch(run, port) {
       run.readyTimer = null
       return
     }
-    if (Date.now() - startedAt > READY_TIMEOUT_MS) {
+    if (Date.now() - startedAt > (run.readyBudget ?? READY_TIMEOUT_MS)) {
       clearInterval(run.readyTimer)
       run.readyTimer = null
       return
@@ -527,6 +556,130 @@ function terminate(run) {
 }
 
 /**
+ * Read one backend project's start facts, read-only.
+ *
+ * A backend entry composes its command from a build tool instead of a package
+ * manager, so it needs what the build declares: which tool exists, which Spring
+ * profiles the project ships, and which port it will listen on.
+ * @param {string} directory project directory.
+ * @returns {object} the backend facts and the warnings they imply.
+ */
+function inspectBackend(directory) {
+  const exists = (relative) => existsSync(path.join(directory, relative))
+  const read = (relative) => readText(path.join(directory, relative))
+  const warnings = []
+
+  const pom = read('pom.xml')
+  const gradle = read('build.gradle') ?? read('build.gradle.kts')
+  const wrapperProperties = exists('.mvn/wrapper/maven-wrapper.properties')
+  const wrapperScript = exists(process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw')
+  const gradlewScript = exists(process.platform === 'win32' ? 'gradlew.bat' : 'gradlew')
+
+  // The project's own artifactId: the parent block declares its own, which is not ours.
+  const ownPom = pom === null ? null : pom.replace(/<parent>[\s\S]*?<\/parent>/, '')
+  const artifactId = ownPom === null ? null : /<artifactId>([^<]+)<\/artifactId>/.exec(ownPom)?.[1] ?? null
+  const property = (name) => ownPom === null ? null : new RegExp('<' + name + '>([^<]+)</' + name + '>').exec(ownPom)?.[1] ?? null
+  const resolve = (value) => {
+    if (value === null) return null
+    const reference = /^\$\{([^}]+)\}$/.exec(value)
+    return reference === null ? value : property(reference[1])
+  }
+  const javaVersion = resolve(
+    property('java.version')
+    ?? property('jdk.version')
+    ?? property('maven.compiler.source')
+    ?? property('maven.compiler.target')
+    ?? /<release>([^<]+)<\/release>/.exec(ownPom ?? '')?.[1]
+    ?? /<source>([^<]+)<\/source>/.exec(ownPom ?? '')?.[1]
+    ?? null,
+  )
+
+  // Spring Boot reads application[-<profile>].{yaml,yml,properties} from the classpath.
+  const resources = path.join(directory, 'src', 'main', 'resources')
+  const profiles = []
+  const profilePorts = {}
+  let basePort = null
+  let activeProfile = null
+  /**
+   * The port a Spring config file will listen on.
+   *
+   * port: appears many times in these files (redis, rabbitmq, mail, a second HTTP
+   * connector). Only the shallowest one inside the top-level server block is the
+   * application's own, so indentation decides, not the order of appearance.
+   */
+  const portOf = (content) => {
+    if (content === null) return null
+    const properties = /^server\.port\s*=\s*(\d{2,5})\s*$/m.exec(content)
+    if (properties !== null) return Number.parseInt(properties[1], 10)
+    const lines = content.split(/\r?\n/)
+    let inside = false
+    let best = null
+    for (const line of lines) {
+      if (/^server:\s*(?:#.*)?$/.test(line)) {
+        inside = true
+        continue
+      }
+      if (!inside) continue
+      if (/^\S/.test(line) && !/^\s*#/.test(line)) break
+      const match = /^(\s+)port:\s*(\d{2,5})\s*(?:#.*)?$/.exec(line)
+      if (match === null) continue
+      const indent = match[1].length
+      if (best === null || indent < best.indent) best = { indent, port: Number.parseInt(match[2], 10) }
+    }
+    return best === null ? null : best.port
+  }
+  const readSettings = (file) => {
+    const content = readText(path.join(resources, file))
+    if (content === null) return null
+    const active = /^[ \t]*active:\s*([A-Za-z0-9_,.-]+)\s*(?:#.*)?$/m.exec(content)?.[1]
+      ?? /^spring\.profiles\.active\s*=\s*([A-Za-z0-9_,.-]+)\s*$/m.exec(content)?.[1]
+    return { port: portOf(content), active: active ?? null }
+  }
+  const baseSettings = readSettings('application.yaml') ?? readSettings('application.yml') ?? readSettings('application.properties')
+  if (baseSettings !== null) {
+    basePort = baseSettings.port
+    activeProfile = baseSettings.active
+  }
+  let names = []
+  try {
+    names = readdirSync(resources)
+  } catch {
+    names = []
+  }
+  for (const fileName of names) {
+    const match = /^application-([A-Za-z0-9_.-]+)\.(?:ya?ml|properties)$/.exec(fileName)
+    if (match === null) continue
+    profiles.push(match[1])
+    const settings = readSettings(fileName)
+    if (settings?.port !== null && settings?.port !== undefined) profilePorts[match[1]] = settings.port
+  }
+  profiles.sort()
+
+  if (pom === null && gradle === null) {
+    warnings.push({ code: 'no-backend-build', level: 'notice', text: '没找到 pom.xml 或 build.gradle：请改用自定义命令' })
+  }
+  if (pom !== null && wrapperScript && !wrapperProperties) {
+    warnings.push({ code: 'wrapper-incomplete', level: 'notice', text: 'mvnw 缺少 .mvn/wrapper 配置，启动会用全局 mvn' })
+  }
+  if (basePort === null) {
+    warnings.push({ code: 'no-server-port', level: 'notice', text: '配置里没读到 server.port：端口请自己填' })
+  }
+  if (profiles.length === 0 && pom !== null) {
+    warnings.push({ code: 'no-profiles', level: 'info', text: '没有 application-<profile> 配置文件：只用默认配置启动' })
+  }
+
+  return {
+    maven: { present: pom !== null, wrapper: wrapperProperties, artifactId, javaVersion },
+    gradle: { present: gradle !== null, wrapper: gradlewScript },
+    profiles,
+    profilePorts,
+    activeProfile,
+    serverPort: basePort,
+    warnings,
+  }
+}
+
+/**
  * Read one project's facts, cached briefly so polling stays cheap.
  * @param {string} directory project directory.
  * @returns {object} the facts, including warnings the browser can show.
@@ -597,6 +750,7 @@ function projectFacts(directory, fresh = false) {
     lockfile,
     git,
     hasNodeModules: hasModules,
+    backend: directoryExists ? inspectBackend(directory) : null,
     warnings,
   }
   projectCache.set(directory, { at: Date.now(), value })
@@ -613,9 +767,17 @@ function projectFacts(directory, fresh = false) {
  * @param {boolean} [fresh] bypass the fact cache.
  * @returns {{ at: number, branch: string | null, changes: number | null, warnings: Array<object> }} the snapshot.
  */
+/** Facts about package.json and node_modules that mean nothing to a backend entry. */
+const FRONTEND_ONLY_WARNINGS = new Set(['no-package-json', 'package-json-unparsable', 'no-node-modules'])
+
 function snapshotOf(entry, context, fresh = false) {
   const facts = projectFacts(entry.projectPath, fresh)
-  const warnings = [...facts.warnings]
+  const backend = entry.stack === 'backend'
+  const warnings = facts.warnings.filter((warning) => !backend || !FRONTEND_ONLY_WARNINGS.has(warning.code))
+  // The build tool has its own facts: which Maven/Gradle exists, which profiles ship.
+  if (backend) {
+    for (const warning of facts.backend?.warnings ?? []) warnings.push(warning)
+  }
   if (entry.kind === 'script' && facts.hasPackageJson && facts.parsed
     && entry.script !== null && !facts.scripts.some((candidate) => candidate.name === entry.script)) {
     warnings.push({ code: 'script-missing', level: 'block', text: `脚本 ${entry.script} 已不存在：请重新选择` })
@@ -751,12 +913,27 @@ function validateEntry(input, context) {
   if (!path.isAbsolute(projectPath)) return { ok: false, code: 'invalid-directory', message: `the directory must be an absolute path: ${projectPath}` }
   if (!isDirectory(projectPath)) return { ok: false, code: 'missing-directory', message: `the directory does not exist: ${projectPath}` }
 
+  const stack = STACKS.includes(source.stack) ? source.stack : 'frontend'
   const kind = source.kind === 'script' ? 'script' : 'custom'
+  const builder = BUILDERS.includes(source.builder) ? source.builder : null
+  const profile = firstText(source.profile) ?? null
   const pm = PACKAGE_MANAGERS.includes(source.pm) ? source.pm : null
   const script = firstText(source.script) ?? null
   const customCommand = firstText(source.customCommand) ?? null
 
-  if (kind === 'script') {
+  if (kind === 'script' && stack === 'backend') {
+    if (builder === null) return { ok: false, code: 'invalid-builder', message: '请先选择构建工具（Maven / Gradle）' }
+    const facts = inspectBackend(projectPath)
+    if (builder === 'maven' && !facts.maven.present) {
+      return { ok: false, code: 'no-pom', message: '该目录没有 pom.xml：Maven 项目才能这样启动' }
+    }
+    if (builder === 'gradle' && !facts.gradle.present) {
+      return { ok: false, code: 'no-gradle', message: '该目录没有 build.gradle(.kts)：Gradle 项目才能这样启动' }
+    }
+    if (profile !== null && profile.length > PROFILE_LIMIT) {
+      return { ok: false, code: 'invalid-profile', message: `a profile name is limited to ${PROFILE_LIMIT} characters` }
+    }
+  } else if (kind === 'script') {
     if (pm === null) return { ok: false, code: 'invalid-pm', message: '请先选择包管理器（npm / pnpm / yarn / bun）' }
     if (script === null) return { ok: false, code: 'invalid-script', message: '请先选择启动脚本' }
     if (script.length > SCRIPT_LIMIT) return { ok: false, code: 'invalid-script', message: `a script name is limited to ${SCRIPT_LIMIT} characters` }
@@ -787,8 +964,12 @@ function validateEntry(input, context) {
       name,
       projectPath,
       kind,
-      pm,
-      script: kind === 'script' ? script : null,
+      stack,
+      builder: stack === 'backend' ? builder : null,
+      goal: stack === 'backend' && kind === 'script' ? (builder === null ? null : BUILDER_GOALS[builder]) : null,
+      profile: stack === 'backend' ? profile : null,
+      pm: stack === 'backend' ? null : pm,
+      script: kind === 'script' && stack !== 'backend' ? script : null,
       customCommand: kind === 'custom' ? customCommand : null,
       nodeVersion,
       port: normalizePort(source.port),
@@ -816,7 +997,11 @@ export async function saveEntry(input, context) {
     id: existing?.id ?? randomUUID(),
     name: checked.value.name,
     projectPath: checked.value.projectPath,
+    stack: checked.value.stack,
     kind: checked.value.kind,
+    builder: checked.value.builder,
+    goal: checked.value.goal,
+    profile: checked.value.profile,
     pm: checked.value.pm,
     script: checked.value.script,
     customCommand: checked.value.customCommand,
@@ -929,6 +1114,9 @@ export async function startEntry(input, context) {
   }
 
   const env = { ...process.env }
+  // A Spring profile travels as an environment variable, so the same setting works
+  // for spring-boot:run, bootRun, a fat jar, and a hand-written command.
+  if (entry.stack === 'backend' && entry.profile !== null) env.SPRING_PROFILES_ACTIVE = entry.profile
   let nodeDirectory = null
   if (entry.nodeVersion !== null && typeof context.node?.directory === 'function') {
     const resolved = context.node.directory(entry.nodeVersion)
@@ -952,6 +1140,7 @@ export async function startEntry(input, context) {
     lanUrl: null,
     actualNode: null,
     readyTimer: null,
+    readyBudget: entry.stack === 'backend' ? READY_TIMEOUT_BACKEND_MS : READY_TIMEOUT_MS,
   }
   let child
   try {
