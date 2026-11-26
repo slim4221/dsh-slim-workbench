@@ -24,8 +24,8 @@ import {
   stopAll, stopEntry,
 } from './launcher.js'
 import {
-  currentLinkedVersion, describeState, installedVersions, installVersion, readReleases, readState, switchTo,
-  uninstallVersion, versionDirectory,
+  currentLinkedVersion, describeState, installedVersions, installInfo, installVersion, readReleases, readState,
+  switchTo, uninstallVersion, versionDirectory,
 } from './nvm.js'
 
 /** Route paths: nvm. */
@@ -311,7 +311,7 @@ export function apply(ctx, config) {
   const launcher = () => ({
     defaultProjectPath: defaultProjectPathOf(ctx),
     node: {
-      install: () => nvm.installInfo(),
+      install: () => installInfo(overrides),
       installed: () => installedVersions(overrides),
       current: () => currentLinkedVersion(overrides),
       directory: (version) => versionDirectory(version, overrides),

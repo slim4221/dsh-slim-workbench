@@ -159,7 +159,59 @@ if (existsSync(clientPath) && manifest !== null) {
   }
 }
 
-// 8. An install script would run on the machine of anyone installing from Git.
+// 8. Imports must exist and namespace use needs a namespace import. A named import
+//    used as `nvm.installInfo()` throws at request time, not at load time, so only a
+//    check like this one catches it before a user does.
+const siblingModules = ['launcher.js', 'nvm.js']
+for (const file of files.filter((candidate) => candidate.endsWith('.js') && /import\s+\{[^}]+\}\s+from\s+'\.\//.test(readFileSync(candidate, 'utf8')))) {
+  const label = relative(root, file)
+  const text = readFileSync(file, 'utf8')
+  for (const match of text.matchAll(/import\s+\{([^}]+)\}\s+from\s+'\.\/([^']+)'/g)) {
+    const names = match[1].split(',').map((part) => part.trim().split(/\s+as\s+/).pop()).filter(Boolean)
+    const target = join(root, match[2])
+    if (!existsSync(target)) { fail(`${label}: imports from a missing module ${match[2]}`); continue }
+    const exported = new Set([...readFileSync(target, 'utf8').matchAll(/export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)/g)].map((entry) => entry[1]))
+    for (const name of names) {
+      if (!exported.has(name)) fail(`${label}: imports "${name}" from ${match[2]}, which does not export it`)
+    }
+  }
+  // A bare `name.member` needs `import * as name` or a local declaration. Comments and
+  // string literals are stripped first: a doc comment reading "Route paths: nvm." is prose.
+  const code = text
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+  for (const namespace of ['nvm']) {
+    if (!new RegExp(`\\b${namespace}\\.`).test(code)) continue
+    const namespaced = new RegExp(`import\\s+\\*\\s+as\\s+${namespace}\\b`).test(code)
+    const declared = new RegExp(`(?:const|let|var|function)\\s+${namespace}\\b`).test(code)
+    if (!namespaced && !declared) fail(`${label}: uses "${namespace}." but never imports or declares it`)
+  }
+  // The other direction: a sibling export that this file calls without importing it.
+  // That reads fine and fails only when the route runs, which is how `installInfo()`
+  // shipped once without its import.
+  const imported = new Set(
+    [...text.matchAll(/import\s+\{([^}]+)\}\s+from\s+'\.\/[^']+'/g)]
+      .flatMap((match) => match[1].split(',').map((part) => part.trim().split(/\s+as\s+/).pop()))
+      .filter(Boolean),
+  )
+  for (const sibling of siblingModules) {
+    const siblingPath = join(root, sibling)
+    if (!existsSync(siblingPath)) continue
+    const exportsOfSibling = [...readFileSync(siblingPath, 'utf8').matchAll(/export\s+(?:async\s+)?(?:function|const|let|class)\s+([A-Za-z_$][\w$]*)/g)].map((entry) => entry[1])
+    for (const name of exportsOfSibling) {
+      if (imported.has(name)) continue
+      const declaredHere = new RegExp(`(?:function|const|let|var|class)\\s+${name}\\b`).test(code)
+      if (declaredHere) continue
+      if (new RegExp(`\\b${name}\\s*\\(`).test(code)) {
+        fail(`${label}: calls ${name}() from ${sibling} without importing it`)
+      }
+    }
+  }
+}
+
+// 9. An install script would run on the machine of anyone installing from Git.
 if (manifest !== null && manifest.scripts !== undefined) {
   const scripts = Object.keys(manifest.scripts)
   for (const dangerous of ['preinstall', 'install', 'postinstall', 'prepare']) {
