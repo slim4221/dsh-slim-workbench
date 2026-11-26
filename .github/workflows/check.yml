@@ -1,0 +1,25 @@
+name: check
+
+# The repository is a DeepSeek Harness bundle, so what CI must prove is that the
+# package still loads: the manifest parses, the loader patch names this package, the
+# locale metadata points at real files, and every script parses.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # No install step on purpose: the bundle has no dependencies.
+      - name: Bundle self-check
+        run: node scripts/check.mjs
