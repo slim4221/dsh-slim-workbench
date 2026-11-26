@@ -17,7 +17,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: '@local/slim-workbench',
+  id: 'dsh-slim-workbench',
   factory(require) {
     const React = require('react')
     const h = React.createElement

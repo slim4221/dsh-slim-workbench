@@ -145,7 +145,21 @@ for (const file of files.filter((candidate) => /\.(js|mjs)$/i.test(candidate))) 
   }
 }
 
-// 7. An install script would run on the machine of anyone installing from Git.
+// 7. The client module id must equal the package name: the browser pairs the loaded
+//    module with the package the boot graph named, so a rename that misses this line
+//    leaves a plugin whose Host half runs and whose panel never appears.
+const clientPath = join(root, 'client.js')
+if (existsSync(clientPath) && manifest !== null) {
+  const clientText = readFileSync(clientPath, 'utf8')
+  const declared = /__ModuleLoader__\.load\(\{\s*id:\s*'([^']+)'/.exec(clientText)
+  if (declared === null) {
+    fail('client.js: no __ModuleLoader__.load({ id }) declaration')
+  } else if (declared[1] !== manifest.name) {
+    fail(`client.js: module id "${declared[1]}" does not match package name "${manifest.name}"`)
+  }
+}
+
+// 8. An install script would run on the machine of anyone installing from Git.
 if (manifest !== null && manifest.scripts !== undefined) {
   const scripts = Object.keys(manifest.scripts)
   for (const dangerous of ['preinstall', 'install', 'postinstall', 'prepare']) {

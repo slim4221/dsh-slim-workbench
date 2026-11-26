@@ -1,6 +1,6 @@
 {
   "name": "dsh-slim-workbench",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "description": "Slim 工作台：侧边栏常驻的本地开发工作台。Node 管理 + 前端项目管理 + 后端项目管理，项目目录只读。",
