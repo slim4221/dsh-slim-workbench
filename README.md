@@ -145,31 +145,39 @@ Optional row configuration, for an install outside those defaults:
         symlink: 'D:\nodejs'
 ```
 
-## Install from Git (Gitee or any other host)
+## Install from Git (GitHub or any other host)
 
 This package needs no build step, no dependencies, and no install scripts, so it can be
 installed straight from a Git repository:
 
 ```sh
-# Pin a commit: an unpinned install follows the branch head on every reinstall.
-plugin_manager install_bundle target="git+https://gitee.com/<you>/dsh-slim-workbench.git#<commit-sha>"
+# Pin a commit: every reinstall follows the commit in the spec.
+plugin_manager install_bundle target="git+https://github.com/<you>/dsh-slim-workbench.git#<commit-sha>"
 ```
 
 The installer accepts any Git host — `git+https://…`, `git@host:owner/repo`, or a plain
-`https://host/owner/repo(.git)` URL — plus a local or HTTP tarball ending in `.tgz`.
+`https://host/owner/repo(.git)` URL — plus a local or HTTP tarball ending in `.tgz`. A private
+repository uses the machine's own Git credentials; the installer never prompts, so configure an
+SSH key or a credential helper first.
+
+### Updating
+
+A Git install carries no version list: `listVersions` refuses it, so nothing offers a "newer
+version" for one. Updating means installing the new commit; **and `version` in package.json must
+increase** (`semver.gt` against the installed version), because the Host's `updateBundle` refuses a
+Git copy whose target version is not greater. Bump `version`, commit, push, reinstall with the new
+SHA.
 
 After the first install the profile holds a **copy** of the package, so edits in a working
 checkout no longer take effect; reinstall with the new commit, or keep developing through a
 `link:` entry in the profile's `package.json`. Installing under the same package name replaces
 whichever entry carried that name before, so remove a `link:` row first if both should coexist.
 
-Notes for anyone installing from a repository rather than a registry tarball:
+### Distribution note
 
-- pnpm runs a Git dependency's `prepare` script on the installing machine. This package has no
-  `scripts` at all, so nothing runs; keep it that way if that guarantee matters to you.
-- `engines.dsh` is deliberately absent. A range that excluded the running prerelease build would
-  block installation outright, so the DSH requirement is stated here instead: **DSH 0.2.1 or
-  newer** (`ctx.webServer`, `ctx.slots`, and `uiWorkspace.pickDirectory` are the APIs used).
+"Official" in the Plugin Manager means a `@deepseek-ai/*` package shipped with the Harness itself;
+this package is a profile plugin. It can be distributed through the community catalog
+(`awesome-dsh-plugin`, which the market reads), through npm, or straight from a repository.
 ## Requirements and limits
 
 ## Platforms

@@ -1,9 +1,9 @@
 {
   "name": "@local/slim-workbench",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Slim 工作台：侧边栏常驻的可扩展工作台面板，一个入口托管这台机器上可切换、可操作的系统（当前：Node.js 版本管理 + 一键启动命令）。",
+  "description": "Slim 工作台：侧边栏常驻的本地开发工作台。Node 管理 + 前端项目管理 + 后端项目管理，项目目录只读。",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
