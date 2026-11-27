@@ -4,15 +4,17 @@
  *
  * Everything here is a defect this repository has actually shipped once: a
  * byte-order mark that made the installer reject the package, a package name that
- * drifted from the name in the loader patch, and a locale `meta.detail` pointing
- * at a file that did not exist. Run it before pushing; CI runs the same file.
+ * drifted from the name in the loader patch, a locale `meta.detail` pointing at a
+ * file that did not exist, a dictionary key declared twice so one language won, and
+ * a `t('…')` with no entry at all. Run it before pushing; CI runs the same file.
  *
- * No dependencies and no network: it reads files and calls `node --check`.
+ * No dependencies and no network: it reads files, calls `node --check`, and evaluates
+ * `client.js` against stub `window`/React/locale objects to read the copy it registers.
  */
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const failures = []
@@ -219,6 +221,114 @@ if (manifest !== null && manifest.scripts !== undefined) {
       notes.push(`package.json: the "${dangerous}" script runs on every install from Git`)
     }
   }
+}
+
+// 10. The client's two dictionaries must agree with each other and with the copy the
+//     panel asks for. Three separate slips shipped once: a key declared twice (JS
+//     keeps the last value, so the first dies), a key present in English only (a
+//     Chinese panel then shows English), and a t('…') with no entry at all (the panel
+//     prints the raw key). None of them break loading, so only a check finds them.
+failures.push(...await checkDictionaries())
+
+/**
+ * Read the dictionaries the client registers and compare them with the keys it uses.
+ *
+ * The module is evaluated with a stub `window`, a stub `require`, and a stub locale
+ * service: nothing here touches the network, the DOM, or a real Host.
+ * @returns {Promise<string[]>} the problems found.
+ */
+async function checkDictionaries() {
+  const clientPath = join(root, 'client.js')
+  if (!existsSync(clientPath)) return []
+  const text = readFileSync(clientPath, 'utf8')
+  const problems = []
+
+  // Duplicated keys inside one literal, found textually: the parser would hide them.
+  for (const label of ['EN', 'ZH']) {
+    const from = text.indexOf(`    const ${label} = {`)
+    if (from === -1) {
+      problems.push(`client.js: the ${label} dictionary is not declared as "const ${label} = {"`)
+      continue
+    }
+    const to = text.indexOf('\n    }\n', from)
+    if (to === -1) {
+      problems.push(`client.js: the ${label} dictionary has no closing brace`)
+      continue
+    }
+    const counts = new Map()
+    for (const match of text.slice(from, to).matchAll(/^ {6}([A-Za-z][A-Za-z0-9]*):/gm)) {
+      counts.set(match[1], (counts.get(match[1]) ?? 0) + 1)
+    }
+    for (const [key, count] of counts) {
+      if (count > 1) problems.push(`client.js: the ${label} dictionary declares "${key}" ${count} times; only the last value survives`)
+    }
+  }
+
+  let registered = null
+  try {
+    // The client half expects the shell's module loader and React; both are stubbed.
+    globalThis.window = { __ModuleLoader__: { load: (definition) => { registered = definition } } }
+    const stubReact = {
+      createElement: () => null,
+      useState: (value) => [value, () => {}],
+      useEffect: () => {},
+      useRef: (value) => ({ current: value }),
+      Fragment: 'fragment',
+    }
+    await import(pathToFileURL(clientPath).href)
+    if (registered === null) {
+      problems.push('client.js: __ModuleLoader__.load was never called')
+      return problems
+    }
+    const plugin = registered.factory((name) => {
+      if (name === 'react') return stubReact
+      throw new Error(`unexpected require("${name}")`)
+    })
+    plugin.apply({
+      effect: (run) => { run() },
+      locale: {
+        register: (_namespace, dictionaries) => { registered.dictionaries = dictionaries; return () => {} },
+        bind: () => (key) => key,
+      },
+      slots: { inject: () => {}, register: () => {} },
+      get: () => null,
+    })
+  } catch (error) {
+    problems.push(`client.js: cannot be evaluated with stubs (${error instanceof Error ? error.message : String(error)})`)
+    return problems
+  }
+
+  const { en, zh } = registered.dictionaries ?? {}
+  if (en === null || typeof en !== 'object' || zh === null || typeof zh !== 'object') {
+    problems.push('client.js: apply() registered no { en, zh } dictionaries')
+    return problems
+  }
+  const enKeys = Object.keys(en)
+  for (const key of enKeys) if (!(key in zh)) problems.push(`client.js: "${key}" has no Chinese copy, so a zh panel shows English`)
+  for (const key of Object.keys(zh)) if (!(key in en)) problems.push(`client.js: "${key}" has no English copy, so an en panel shows Chinese`)
+  for (const key of enKeys) {
+    if (typeof en[key] !== 'string' || en[key] === '') problems.push(`client.js: EN "${key}" is not a non-empty string`)
+    if (/[\u4e00-\u9fff]/.test(String(en[key]))) problems.push(`client.js: EN "${key}" contains Chinese text: ${en[key]}`)
+  }
+
+  // Every key the panel asks for, including the systems list's `titleKey`.
+  const used = new Set([
+    ...[...text.matchAll(/\bt\('([A-Za-z][A-Za-z0-9]*)'\)/g)].map((match) => match[1]),
+    ...[...text.matchAll(/titleKey: '([A-Za-z][A-Za-z0-9]*)'/g)].map((match) => match[1]),
+  ])
+  for (const key of used) if (!(key in en)) problems.push(`client.js: t('${key}') has no dictionary entry, so the panel prints the key`)
+  for (const key of enKeys) if (!used.has(key)) problems.push(`client.js: "${key}" is defined but never used`)
+
+  // A placeholder one language forgot would render as literal braces.
+  const placeholders = (value) => [...String(value).matchAll(/\{([A-Za-z][A-Za-z0-9]*)\}/g)]
+    .map((match) => match[1]).sort().join(',')
+  for (const key of enKeys) {
+    if (!(key in zh)) continue
+    if (placeholders(en[key]) !== placeholders(zh[key])) {
+      problems.push(`client.js: "${key}" fills different placeholders: en(${placeholders(en[key])}) zh(${placeholders(zh[key])})`)
+    }
+  }
+  return problems
 }
 
 if (notes.length > 0) console.log(`note:\n  ${notes.join('\n  ')}`)
