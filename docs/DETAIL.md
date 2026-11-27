@@ -61,8 +61,9 @@ The project directory is read-only for this plugin. It reads `package.json`, loc
 --porcelain`. The flag matters: without it, `git status` refreshes its cached stat data and rewrites
 `.git/index`, which is a file inside the project. It never writes, creates, renames, or deletes
 anything inside a project, never installs dependencies, never edits a lockfile or any project
-configuration, never runs a mutating git command, and never kills a process it did not start. Its
-only write target is `$DSH_HOME/slim-workbench/launchers.json`.
+configuration, never runs a mutating git command, and never kills a process it did not start. It writes
+two files, both under `$DSH_HOME/slim-workbench/`: `launchers.json` (your entries) and `node-cache.json`
+(the last Node read, kept only so a failed live read still has something to show — delete it any time).
 
 ## Data and moving machines
 

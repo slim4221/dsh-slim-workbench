@@ -334,19 +334,7 @@ test('a refresh of the installed list shows that it is loading', () => {
   const node = seen.get('NodeSystem')
   assert.ok(node !== undefined, 'the Node pane renders')
   const state = stateOf(stores, node)
-  const payload = {
-    platform: 'win32',
-    supported: true,
-    available: true,
-    nvmVersion: '1.1.10',
-    nvmHome: 'F:\\nvm',
-    symlink: 'F:\\nodejs',
-    symlinkPresent: true,
-    checked: [],
-    current: '24.14.1',
-    versions: [{ version: '24.14.1' }, { version: '14.21.3' }],
-    readAt: Date.parse('2026-11-27T09:18:09Z'),
-  }
+  const payload = nodeState()
   state[0] = { phase: 'ready', state: payload, error: null }
   const idle = renderPanel()
   assert.deepEqual(elementsWithClass(idle, 'ndv-loading'), [], 'no indicator while idle')
@@ -371,6 +359,43 @@ test('a refresh of the installed list shows that it is loading', () => {
   assert.ok(textsOf(tree).includes('v24.14.1'), 'the installed rows are still there')
 
   state[0] = { phase: 'ready', state: payload, error: null }
+})
+
+/**
+ * The payload the Node pane expects from `/slim-workbench/state`.
+ * @param {number} [readAt] when that read happened.
+ * @returns {object} the payload.
+ */
+function nodeState(readAt = Date.parse('2026-11-27T09:18:09Z')) {
+  return {
+    platform: 'win32',
+    supported: true,
+    available: true,
+    nvmVersion: '1.1.10',
+    nvmHome: 'F:\\nvm',
+    symlink: 'F:\\nodejs',
+    symlinkPresent: true,
+    checked: [],
+    current: '24.14.1',
+    versions: [{ version: '24.14.1' }, { version: '14.21.3' }],
+    readAt,
+  }
+}
+
+test('a failed live read falls back to the cached list, with its age', () => {
+  const node = seen.get('NodeSystem')
+  const state = stateOf(stores, node)
+  state[0] = { phase: 'error', state: nodeState(), error: 'nvm exploded' }
+  const tree = renderPanel()
+  const text = textsOf(tree)
+  // The cached rows are still there, and the strip still says when they were read.
+  assert.ok(text.includes('v24.14.1'))
+  assert.ok(text.some((line) => line.startsWith(dictionaries.en.updatedAt)))
+  assert.ok(
+    text.some((line) => line.startsWith(dictionaries.en.staleCache.replace('{time}', '').trim().slice(0, 20))),
+    'the banner says the live read failed and this is the cache',
+  )
+  state[0] = { phase: 'ready', state: nodeState(), error: null }
 })
 
 test('the dictionaries the panel registers stay in step', () => {

@@ -364,6 +364,15 @@ function writeEntries(entries) {
   renameSync(temporary, dataFile())
 }
 
+/**
+ * The plugin's own data directory, for anything that has to keep a file beside the
+ * launcher list without touching the profile's patch file.
+ * @returns {string} absolute path to `$DSH_HOME/slim-workbench`.
+ */
+export function pluginDataDirectory() {
+  return dataDirectory()
+}
+
 /** Tail of the mutation queue: writes are serialized so two callers cannot interleave. */
 let mutations = Promise.resolve()
 

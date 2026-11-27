@@ -91,6 +91,7 @@ window.__ModuleLoader__.load({
       current: 'Node.js in use',
       none: 'No version linked',
       updatedAt: 'Updated',
+      staleCache: 'The live read failed, so this is what was read at {time}.',
       inUse: 'Active',
       tabInstalled: 'Installed',
       tabAvailable: 'Available',
@@ -271,6 +272,7 @@ window.__ModuleLoader__.load({
       current: '当前使用的 Node.js',
       none: '未链接任何版本',
       updatedAt: '更新时间',
+      staleCache: '实时读取失败，下面显示的是 {time} 那次读取的结果。',
       inUse: '当前',
       tabInstalled: '已安装',
       tabAvailable: '可安装',
@@ -780,8 +782,15 @@ window.__ModuleLoader__.load({
         // A re-read keeps the last known state on screen instead of flashing the loader.
         setSnapshot((current) => ({ phase: 'loading', state: current.state, error: null }))
         readJson(ROUTES.state, { headers: { accept: 'application/json' }, signal: controller.signal }).then(
-          (state) => {
-            if (live) setSnapshot({ phase: 'ready', state, error: null })
+          (payload) => {
+            if (!live) return
+            if (payload?.ok === false) {
+              // The live read failed: fall back to what the Host remembered, which carries
+              // its own readAt so the strip keeps telling the truth about its age.
+              setSnapshot({ phase: 'error', state: payload.cached ?? null, error: String(payload.message ?? '') })
+              return
+            }
+            setSnapshot({ phase: 'ready', state: payload, error: null })
           },
           (error) => {
             if (live && !controller.signal.aborted) {
@@ -1192,6 +1201,10 @@ window.__ModuleLoader__.load({
             'data-kind': banner.kind,
             role: banner.kind === 'error' ? 'alert' : 'status',
           }, banner.text),
+          snapshot.phase === 'error' && state !== null
+            ? h('p', { className: 'ndv-notice', 'data-kind': 'error', role: 'status' },
+              fill(t('staleCache'), { time: readAt === null ? '?' : new Date(readAt).toLocaleString() }))
+            : null,
           managed ? statusStrip() : null,
           reloading ? h('p', { className: 'ndv-loading', role: 'status', 'aria-live': 'polite' },
             h('span', { className: 'ndv-spin', 'aria-hidden': 'true' }),

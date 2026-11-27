@@ -46,7 +46,8 @@ fnm、volta、asdf 里检测到的版本，并明确说明那里「版本属于 
 `git --no-optional-locks status --porcelain`。那个参数不是装饰：不加的话，`git status` 会在缓存过期时
 刷新并**改写 `.git/index`**——那是项目里的文件。**不写、不新建、不改名、不删除**项目里的任何文件；
 不安装依赖；不改锁文件、也不动项目里的任何配置；不执行任何写操作的 git 命令；不杀不是它启动的进程。
-唯一的写入目标是 `$DSH_HOME/slim-workbench/launchers.json`。
+它只写两个文件，都在 `$DSH_HOME/slim-workbench/` 下：`launchers.json`（你的条目）与 `node-cache.json`
+（最后一次 Node 读取的快照，留着只为实时读取失败时还能显示上次结果，随时可删）。
 
 ## 数据与换机器
 

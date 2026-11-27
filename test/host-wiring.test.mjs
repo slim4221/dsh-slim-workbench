@@ -8,7 +8,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -132,6 +132,21 @@ test('the Node state says when it was read', async () => {
   assert.equal(typeof state.payload.readAt, 'number', 'the payload carries the read time')
   assert.ok(state.payload.readAt >= before, 'and it is this read, not an older one')
   assert.ok(state.payload.readAt <= Date.now() + 5)
+})
+
+test('a successful read is remembered for a later failure', async () => {
+  const state = await call('/slim-workbench/state')
+  assert.equal(state.status, 200)
+  const file = path.join(home, 'slim-workbench', 'node-cache.json')
+  assert.ok(existsSync(file), 'the read lands in a cache file beside the launcher data')
+  const cached = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(typeof cached.readAt, 'number')
+  assert.ok(Array.isArray(cached.versions))
+  // A corrupt cache is the same as no cache: the live read must still answer.
+  writeFileSync(file, '{ not json', 'utf8')
+  const again = await call('/slim-workbench/state')
+  assert.equal(again.status, 200)
+  assert.equal(typeof again.payload.readAt, 'number')
 })
 
 test('a saved entry comes back with its command and snapshot', async () => {
