@@ -1,8 +1,9 @@
 name: check
 
 # The repository is a DeepSeek Harness bundle, so what CI must prove is that the
-# package still loads: the manifest parses, the loader patch names this package, the
-# locale metadata points at real files, and every script parses.
+# package still loads and still computes: the manifest parses, the loader patch names
+# this package, the locale metadata points at real files, every script parses, the two
+# dictionaries agree, and the parsing/validation rules still behave.
 on:
   push:
     branches: [main]
@@ -23,3 +24,5 @@ jobs:
       # No install step on purpose: the bundle has no dependencies.
       - name: Bundle self-check
         run: node scripts/check.mjs
+      - name: Behaviour and render tests
+        run: npm test
