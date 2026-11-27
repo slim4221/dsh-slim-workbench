@@ -1267,24 +1267,23 @@ export function saveEntry(input, context) {
 }
 
 /**
- * Re-inspect one entry's project and store the fresh snapshot.
+ * Re-inspect every entry's project and store the fresh snapshots in one write.
  *
- * This is the manual counterpart of the inspection done on save: the list itself
- * costs no disk or git access, so branch and warnings are only as fresh as the
- * last save or refresh.
- * @param {unknown} input the request body: `{ id }`.
+ * The panel has one Refresh action instead of one per row: the list is read as a whole,
+ * so refreshing is one round trip and one file write rather than N of each.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
- * @returns {Promise<object>} `{ ok: true, state }` or `{ ok: false, code, message }`.
+ * @returns {Promise<object>} `{ ok: true, state }`.
  */
-export function refreshEntry(input, context) {
+export function refreshAllEntries(context) {
   return serialize(async () => {
-    const id = firstText(input?.id)
-    if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
     const entries = readEntries()
-    const entry = entries.find((candidate) => candidate.id === id)
-    if (entry === undefined) return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
-    const facts = await snapshotOf(entry, context, true)
-    writeEntries(entries.map((current) => (current.id === id ? { ...current, facts } : current)))
+    if (entries.length > 0) {
+      const stamped = await Promise.all(
+        entries.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]),
+      )
+      const byId = new Map(stamped)
+      writeEntries(entries.map((entry) => ({ ...entry, facts: byId.get(entry.id) ?? entry.facts })))
+    }
     return { ok: true, state: await readLauncherState(context) }
   })
 }

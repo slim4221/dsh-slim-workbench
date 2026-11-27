@@ -89,7 +89,7 @@ test('every route the browser calls is registered', () => {
   const expected = [
     'state', 'releases', 'use', 'install', 'uninstall',
     'launch/state', 'launch/save', 'launch/remove', 'launch/start', 'launch/stop',
-    'launch/inspect', 'launch/probe', 'launch/refresh', 'launch/batch-enabled', 'launch/log',
+    'launch/inspect', 'launch/probe', 'launch/refresh-all', 'launch/batch-enabled', 'launch/log',
   ].map((suffix) => `/slim-workbench/${suffix}`)
   assert.deepEqual([...routes.keys()].sort(), expected.sort())
 })
@@ -178,6 +178,16 @@ test('a saved entry comes back with its command and snapshot', async () => {
   // The entry write must carry the section it does not own.
   const stored = JSON.parse(readFileSync(path.join(home, 'slim-workbench', 'launchers.json'), 'utf8'))
   assert.equal(typeof stored.nodeCache?.readAt, 'number', 'saving an entry keeps the remembered read')
+
+  // One Refresh above the list re-reads every project, in one request.
+  const refreshed = await call('/slim-workbench/launch/refresh-all', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  assert.equal(refreshed.payload.ok, true)
+  assert.equal(refreshed.payload.state.entries.length, 1)
+  assert.ok(refreshed.payload.state.entries[0].inspectedAt !== null)
 
   // The panel no longer sends a priority: editing must keep the stored one, not reset it.
   const edited = await call('/slim-workbench/launch/save', {

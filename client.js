@@ -45,7 +45,7 @@ window.__ModuleLoader__.load({
       launchStart: 'slim-workbench/launch/start',
       launchStop: 'slim-workbench/launch/stop',
       launchRemove: 'slim-workbench/launch/remove',
-      launchRefresh: 'slim-workbench/launch/refresh',
+      launchRefreshAll: 'slim-workbench/launch/refresh-all',
       launchBatchEnabled: 'slim-workbench/launch/batch-enabled',
       launchInspect: 'slim-workbench/launch/inspect',
       launchProbe: 'slim-workbench/launch/probe',
@@ -183,9 +183,8 @@ window.__ModuleLoader__.load({
       launchInspecting: 'Reading the folder…',
       launchInspectFailed: 'Could not read the folder: {message}',
       launchBlocked: 'This entry cannot start until its warning is fixed',
-      launchRefresh: 'Refresh',
-      launchRefreshing: 'Refreshing…',
-      launchRefreshHint: 'Re-read branch, lockfile, and scripts of this project',
+      refreshAllHint: "Re-read every project's branch, lockfile, and warnings",
+      refreshAllBusy: 'Re-reading every project…',
       actionsMore: 'More',
       launchScriptLoading: 'Reading scripts…',
       launchLog: 'Output',
@@ -245,6 +244,7 @@ window.__ModuleLoader__.load({
       batchParticipate: 'Include in batch start',
       batchParticipateHint: 'Uncheck to keep it out of the top-bar Batch start.',
       launchColProject: 'Project',
+      launchColPath: 'Directory',
       launchColState: 'State',
       launchColBranch: 'Branch',
       launchColScript: 'Command',
@@ -364,9 +364,8 @@ window.__ModuleLoader__.load({
       launchInspecting: '正在读取项目…',
       launchInspectFailed: '读取项目失败：{message}',
       launchBlocked: '这条有阻断问题，处理前不能启动',
-      launchRefresh: '更新',
-      launchRefreshing: '更新中…',
-      launchRefreshHint: '重新读取这个项目的分支、锁文件与脚本',
+      refreshAllHint: '重新读取所有项目的分支、锁文件与警告',
+      refreshAllBusy: '正在重新读取所有项目…',
       actionsMore: '更多',
       launchScriptLoading: '正在读取脚本…',
       launchLog: '输出',
@@ -426,6 +425,7 @@ window.__ModuleLoader__.load({
       batchParticipate: '参与批量启动',
       batchParticipateHint: '取消勾选后，顶部「批量启动」不会启动它。',
       launchColProject: '项目',
+      launchColPath: '项目地址',
       launchColState: '状态',
       launchColBranch: '分支',
       launchColScript: '命令',
@@ -476,7 +476,7 @@ window.__ModuleLoader__.load({
 .ndv-head { display: flex; flex-direction: column; gap: 3px; }
 .ndv-head-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
 .ndv-head-sub { margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-.ndv-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; overflow-y: auto; }
+.ndv-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; overflow: auto; }
 .ndv-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; }
 .ndv-meta { font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .ndv-status { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border: 0.5px solid var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l1)); border-radius: var(--dsw-radius-xl, 12px); }
@@ -549,20 +549,30 @@ window.__ModuleLoader__.load({
      * list rather than nesting a second scroll container.
      */
     const LAUNCH_STYLES = `
-.lch-table { table-layout: fixed; }
+.lch-table { table-layout: fixed; min-width: 1180px; }
 .lch-table th { position: sticky; top: 0; z-index: 1; padding-top: 8px; padding-bottom: 8px; background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1)); }
-.lch-table th:nth-child(1) { width: 24%; }
-.lch-table th:nth-child(2) { width: 11%; }
-.lch-table th:nth-child(3) { width: 10%; }
-.lch-table th:nth-child(4) { width: 20%; }
-.lch-table th:nth-child(5) { width: 9%; }
-.lch-table th:nth-child(6) { width: 12%; }
-/* Fixed, not a share of the width: the actions must never wrap onto a second line. */
-.lch-table th:nth-child(7) { width: 168px; }
+/* Fixed widths, in pixels: a squeezed column is worse than a horizontal scrollbar. */
+.lch-table th:nth-child(1) { width: 190px; }
+.lch-table th:nth-child(2) { width: 260px; }
+.lch-table th:nth-child(3) { width: 84px; }
+.lch-table th:nth-child(4) { width: 120px; }
+.lch-table th:nth-child(5) { width: 200px; }
+.lch-table th:nth-child(6) { width: 92px; }
+.lch-table th:nth-child(7) { width: 96px; }
+.lch-table th:nth-child(8) { width: 168px; }
 .lch-trow td { padding: 10px 8px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The project cell is deliberately two lines: name over directory. */
-.lch-trow td:first-child { white-space: normal; }
-.lch-cell-project { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The name and the actions stay put; only the middle columns scroll sideways. */
+.lch-table th:nth-child(1),
+.lch-table td:nth-child(1),
+.lch-table th:nth-child(8),
+.lch-table td:nth-child(8) {
+  position: sticky;
+  z-index: 2;
+  background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1));
+}
+.lch-table th:nth-child(1), .lch-table td:nth-child(1) { left: 0; box-shadow: 1px 0 0 0 var(--dsw-alias-border-l1); }
+.lch-table th:nth-child(8), .lch-table td:nth-child(8) { right: 0; box-shadow: -1px 0 0 0 var(--dsw-alias-border-l1); }
+.lch-table thead th:nth-child(1), .lch-table thead th:nth-child(8) { top: 0; z-index: 3; }
 .lch-cell-name { overflow: hidden; font-size: 13.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .lch-cell-cwd { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 11.5px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); text-overflow: ellipsis; white-space: nowrap; }
 .lch-cell-state { display: flex; flex-direction: column; gap: 6px; }
@@ -601,6 +611,7 @@ window.__ModuleLoader__.load({
 .lch-warnline[data-level="notice"] { color: var(--dsw-alias-state-warn-primary); }
 .lch-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .lch-headactions { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.lch-refresh-all { display: inline-flex; align-items: center; gap: 6px; }
 .lch-actions { flex: none; display: inline-flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 6px; }
 .lch-actions .ndv-button { min-height: 26px; padding: 3px 7px; font-size: 12px; }
 .lch-primary { color: var(--dsw-alias-label-primary-foreground, #ffffff); background: var(--dsw-alias-brand-primary); border-color: transparent; }
@@ -1229,6 +1240,8 @@ window.__ModuleLoader__.load({
       const [pending, setPending] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
       const [token, setToken] = React.useState(0)
+      // Re-reading every project at once: one request, one spinner, one file write.
+      const [refreshAll, setRefreshAll] = React.useState(false)
       // The entry whose delete confirmation is open, if any.
       const [removeTarget, setRemoveTarget] = React.useState(null)
       const confirmCancelRef = React.useRef(null)
@@ -1580,9 +1593,7 @@ window.__ModuleLoader__.load({
         setNotice(null)
         const route = kind === 'start'
           ? ROUTES.launchStart
-          : kind === 'stop'
-            ? ROUTES.launchStop
-            : kind === 'refresh' ? ROUTES.launchRefresh : ROUTES.launchRemove
+          : kind === 'stop' ? ROUTES.launchStop : ROUTES.launchRemove
         try {
           const outcome = await readJson(route, {
             method: 'POST',
@@ -1646,10 +1657,34 @@ window.__ModuleLoader__.load({
       }
 
       /**
+       * Re-read every project on this pane: branch, lockfile, and warnings, in one request.
+       *
+       * The row used to own this action; with one button above the list, refreshing is one
+       * round trip and one write instead of N of each, and the list stays consistent.
+       * @returns {Promise<void>} settles when the Host answered.
+       */
+      const refreshEverything = async () => {
+        setRefreshAll(true)
+        setNotice(null)
+        try {
+          const outcome = await readJson(ROUTES.launchRefreshAll, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: '{}',
+          })
+          if (outcome?.ok === true) setData({ status: 'ready', payload: outcome.state, error: null })
+          else setNotice({ kind: 'error', text: String(outcome?.message ?? '') })
+        } catch (error) {
+          setNotice({ kind: 'error', text: String(error?.message ?? error) })
+        }
+        setRefreshAll(false)
+      }
+
+      /**
        * The two actions a row always shows, plus everything else under More.
        *
        * A row is scanned, not studied: 启动/停止 and 编辑 are the two it earns, and 输出,
-       * 刷新, 删除 stay one click away instead of pushing the column into a second line.
+       * 删除 stay one click away instead of pushing the column into a second line.
        * @param {object} entry the entry.
        * @param {boolean} blocked whether a warning forbids starting it.
        * @returns {object} the action group.
@@ -1703,20 +1738,12 @@ window.__ModuleLoader__.load({
        */
       function moreMenu() {
         const entry = menu.entry
-        const working = pending !== null && pending.id === entry.id ? pending.kind : null
         const items = [
           {
             key: 'log',
             label: t('launchLog'),
             title: t('launchLogHint'),
             run: () => { setLogTarget(entry) },
-          },
-          {
-            key: 'refresh',
-            label: working === 'refresh' ? t('launchRefreshing') : t('launchRefresh'),
-            title: t('launchRefreshHint'),
-            disabled: busy,
-            run: () => { act('refresh', entry).catch(() => {}) },
           },
           {
             key: 'remove',
@@ -2055,16 +2082,14 @@ window.__ModuleLoader__.load({
         return h(React.Fragment, { key: entry.id },
           h('tr', { className: 'lch-trow', 'data-state': entry.status },
             h('td', null,
-              h('div', { className: 'lch-cell-project' },
-                h('span', { className: 'lch-cell-name', title: entry.name },
-                  entry.name,
-                  typeof entry.priority !== 'number' || entry.priority === 1
-                    ? null
-                    : h('span', { className: 'lch-changes' }, ` · ${fill(t('launchPriorityChip'), { count: String(entry.priority) })}`),
-                ),
-                h('span', { className: 'lch-cell-cwd', title: entry.projectPath }, entry.projectPath),
+              h('span', { className: 'lch-cell-name', title: entry.name },
+                entry.name,
+                typeof entry.priority !== 'number' || entry.priority === 1
+                  ? null
+                  : h('span', { className: 'lch-changes' }, ` · ${fill(t('launchPriorityChip'), { count: String(entry.priority) })}`),
               ),
             ),
+            h('td', { className: 'lch-cell-cwd', title: entry.projectPath }, entry.projectPath),
             h('td', null,
               h('div', { className: 'lch-cell-state' },
                 h('span', { className: 'lch-state', 'data-state': entry.status }, statusText(entry)),
@@ -2103,7 +2128,7 @@ window.__ModuleLoader__.load({
           entry.status === 'exited' && typeof entry.tail === 'string' && entry.tail !== ''
             ? h('tr', { key: `${entry.id}-tail` },
               h('td', {
-                colSpan: 7,
+                colSpan: 8,
                 className: 'lch-tailcell',
                 'data-state': entry.status,
               }, entry.tail),
@@ -2112,7 +2137,7 @@ window.__ModuleLoader__.load({
           shown.length === 0
             ? null
             : h('tr', { key: `${entry.id}-warn` },
-              h('td', { colSpan: 7, className: 'lch-warncell' },
+              h('td', { colSpan: 8, className: 'lch-warncell' },
                 h('div', { className: 'lch-warnbox' },
                   shown.map((warning, index) => h('span', {
                     key: index,
@@ -2667,6 +2692,7 @@ window.__ModuleLoader__.load({
             h('thead', null,
               h('tr', null,
                 h('th', null, t('launchColProject')),
+                h('th', null, t('launchColPath')),
                 h('th', null, t('launchColState')),
                 h('th', null, t('launchColBranch')),
                 h('th', null, t('launchColScript')),
@@ -2704,9 +2730,14 @@ window.__ModuleLoader__.load({
                 : null,
               h('button', {
                 type: 'button',
-                className: 'ndv-button',
-                onClick: () => { setToken((value) => value + 1) },
-              }, t('refresh')),
+                className: 'ndv-button lch-refresh-all',
+                title: t('refreshAllHint'),
+                disabled: refreshAll || busy || data.status !== 'ready',
+                'aria-busy': refreshAll ? 'true' : undefined,
+                onClick: () => { refreshEverything().catch(() => {}) },
+              },
+                refreshAll ? h('span', { key: 'spin', className: 'ndv-spin', 'aria-hidden': 'true' }) : null,
+                h('span', { key: 'label' }, refreshAll ? t('refreshAllBusy') : t('refresh'))),
               form === null
                 ? h('button', {
                   type: 'button',
@@ -2722,7 +2753,7 @@ window.__ModuleLoader__.load({
             role: notice.kind === 'error' ? 'alert' : 'status',
           }, notice.text),
         ),
-        h('div', { className: 'ndv-scroll' }, scroller()),
+        h('div', { className: 'ndv-scroll', 'data-busy': refreshAll ? 'true' : undefined }, scroller()),
         form === null ? null : formModal(),
         batchOpen ? batchModal() : null,
         removeTarget === null ? null : removeModal(),

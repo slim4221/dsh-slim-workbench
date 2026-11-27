@@ -179,7 +179,7 @@ test('the panel draws its frame and all three systems', () => {
  * address one slot. The length assertion below makes a reordering fail loudly here
  * instead of quietly seeding the wrong state.
  */
-const HOOK = { data: 0, insp: 6, menu: 8, logTarget: 9, logView: 10, batchOpen: 11, batchRun: 13, total: 14 }
+const HOOK = { data: 0, insp: 7, menu: 9, logTarget: 10, logView: 11, batchOpen: 12, batchRun: 14, total: 15 }
 
 test('an entry row draws its command, state, and actions', () => {
   // Bring the frontend pane up, then hand its data state a ready payload: the row
@@ -292,8 +292,14 @@ test('the More menu holds the actions the row no longer shows', () => {
   const items = elementsWithClass(menu[0], 'lch-menu-item')
   assert.deepEqual(
     items.map((item) => textsOf(item).join('')),
-    [dictionaries.en.launchLog, dictionaries.en.launchRefresh, dictionaries.en.launchRemove],
+    [dictionaries.en.launchLog, dictionaries.en.launchRemove],
   )
+  // The directory has its own column now, and the list is refreshed as a whole.
+  assert.equal(textsOf(tree).filter((line) => line.includes('D:\\work\\demo')).length >= 1, true)
+  const buttons = elementsWithClass(tree, 'lch-refresh-all')
+  assert.equal(buttons.length, 1, 'one Refresh above the list')
+  assert.ok(textsOf(buttons[0]).includes(dictionaries.en.refresh))
+
   state[HOOK.menu] = null
 })
 

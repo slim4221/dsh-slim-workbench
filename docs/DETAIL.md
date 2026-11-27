@@ -26,8 +26,10 @@ package manager and the script — neither is preselected, and a lockfile is sho
 a hint, never applied on your behalf. Optional: pin a Node version for this entry only, and a port.
 Start runs the command in that folder; the row reports *starting*, then *ready* when the
 port answers, and then shows the LAN address (the local address is implied by the machine you are
-on). A row shows two actions — start/stop and edit — and keeps output, refresh, and delete under
-**More**. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
+on). A row shows two actions — start/stop and edit — and keeps output and delete under
+**More**. The directory has its own column, the widths are fixed, and the project and action columns
+stay frozen while the middle scrolls. **Refresh**, above the list, re-reads every project in one
+request. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
 refreshed while the dialog is open. **Batch start** starts the selected entries at the same time by
 default; a second mode starts them one by one, each after the previous one answers on its port, in
 list order — for projects that must come up in order (an SSO service: add it first). Its readiness
@@ -81,8 +83,8 @@ absolute paths then have to be pointed at that machine's checkout, and pinned No
 exist there (a machine without nvm says so instead of pretending a version is missing).
 
 Reading a project happens when an entry is saved, when its editor opens (the dialog re-reads the
-script list and the profiles, and shows a loading row until the read lands), or from **More →
-refresh**. It never happens while the panel is open: opening the panel reads one JSON file, which is
+script list and the profiles, and shows a loading row until the read lands), or from **Refresh** above
+the list, which re-reads every entry. It never happens while the panel is open: opening the panel reads one JSON file, which is
 why it opens without a pause and without spawning `git`.
 
 ## Limits worth knowing

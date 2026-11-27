@@ -20,7 +20,7 @@
  */
 
 import {
-  inspectProject, migrateEntries, probePort, readLauncherState, readNodeCache, readRunLog, refreshEntry,
+  inspectProject, migrateEntries, probePort, readLauncherState, readNodeCache, readRunLog, refreshAllEntries,
   rememberNodeCache, removeEntry, saveEntry, setBatchEnabled, startEntry, stopAll, stopEntry,
 } from './launcher.js'
 import {
@@ -43,7 +43,7 @@ const ROUTE_LAUNCH_START = '/slim-workbench/launch/start'
 const ROUTE_LAUNCH_STOP = '/slim-workbench/launch/stop'
 const ROUTE_LAUNCH_INSPECT = '/slim-workbench/launch/inspect'
 const ROUTE_LAUNCH_PROBE = '/slim-workbench/launch/probe'
-const ROUTE_LAUNCH_REFRESH = '/slim-workbench/launch/refresh'
+const ROUTE_LAUNCH_REFRESH_ALL = '/slim-workbench/launch/refresh-all'
 const ROUTE_LAUNCH_BATCH_ENABLED = '/slim-workbench/launch/batch-enabled'
 const ROUTE_LAUNCH_LOG = '/slim-workbench/launch/log'
 
@@ -569,7 +569,7 @@ export function apply(ctx, config) {
       return { ok: true, id, ...log }
     })
     postRoute(ROUTE_LAUNCH_SAVE, async (body) => saveEntry(body, launcher()))
-    postRoute(ROUTE_LAUNCH_REFRESH, async (body) => refreshEntry(body, launcher()))
+    postRoute(ROUTE_LAUNCH_REFRESH_ALL, async () => refreshAllEntries(launcher()))
     postRoute(ROUTE_LAUNCH_BATCH_ENABLED, async (body) => setBatchEnabled(body, launcher()))
     postRoute(ROUTE_LAUNCH_REMOVE, async (body) => removeEntry(body, launcher()))
     postRoute(ROUTE_LAUNCH_START, async (body) => startEntry(body, launcher()))
