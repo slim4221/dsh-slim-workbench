@@ -1,113 +1,103 @@
 # Slim workbench
 
-A persistent panel in the DeepSeek Harness sidebar that holds the local-development systems on one
-machine. It exists to remove the small, repeated costs of starting work: opening a terminal, finding
-a folder, remembering which Node version an old project needs, or which Spring profile it runs on.
+**Stop hopping between five terminals.**
 
-One system is one entry in the panel's left menu and one self-contained pane, so adding a system
-leaves the shell alone.
+Which dev server is up, on which port, on which branch, running which Node — one panel shows it all.
+It lives in the sidebar and opens instantly; it never starts anything by itself.
 
-## What each system does
+## 🧩 Three systems, one panel
 
-**Node management** lists the versions nvm-windows manages, shows which one the machine is on, and
-switches, installs, or removes a version. The machine's symlink is the only thing it changes, and the
-version in use can be neither switched away from nor removed. On macOS and Linux the same pane lists
-the versions found in nvm, fnm, volta, and asdf and says plainly that a version belongs to a shell
-there, so no machine-wide switch exists. This system also exposes the `node_version` tool, so the
-model can look a version up or switch it for you. **Refresh** re-reads only what is installed on this
-machine and which version is linked; it does not re-fetch the release index. While that read is in
-flight the current rows stay on screen, dimmed, with a line above saying what is being refreshed. The
-status strip also shows **Updated**, the moment that list was last read — the clock alone, with the
-full date and time in its tooltip.
+### ⚙️ Node management
 
-**Frontend projects** does not guess at a command. You pick the folder with the host's native folder
-dialog; it reads that folder once and offers every `scripts` entry it found. You then choose the
-package manager and the script — neither is preselected, and a lockfile is shown beside the control as
-a hint, never applied on your behalf. Optional: pin a Node version for this entry only, and a port.
-Start runs the command in that folder; the row reports *starting*, then *ready* when the
-port answers, and then shows the LAN address (the local address is implied by the machine you are
-on). A row shows two actions — start/stop and edit — and keeps output and delete under
-**More**. The directory has its own column, the widths are fixed, and the project and action columns
-stay frozen while the middle scrolls. **Refresh**, above the list, re-reads every project in one
-request and answers the first question first: which folders are gone, by name and path. While it runs,
-**Batch start** and **Add** are locked — both read the list being rewritten — and the button itself says
-it is refreshing. The same
-folder may be added more than once — one entry per script of a monorepo — because the script, port,
-and Node version are per entry. Priority is filled and stored in the editor only; the list does not
-show it. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
-refreshed while the dialog is open. **Batch start** starts the selected entries at the same time by
-default; a second mode starts them one by one, each after the previous one answers on its port, in
-list order — for projects that must come up in order (an SSO service: add it first). Its readiness
-budget follows the stack: three minutes for a dev server, five for a backend.
+The versions nvm-windows manages, with the one in use marked; switching, installing and removing all
+happen here. The version in use can be neither switched away from nor removed — clicking it says so
+instead of leaving a dead grey button — and removing asks first, showing **the folder that will be
+deleted**. On macOS and Linux the pane lists versions only (there a version belongs to a shell) rather
+than pretending a machine-wide switch exists. **Refresh** re-reads what is installed on this machine
+only; it does not re-fetch the release index.
 
-**Backend projects** covers Spring Boot: choose Maven or Gradle, choose a Spring profile from the
-`application-*.yaml` files the project ships, and the port is read from `server.port`. The profile
-travels as the `SPRING_PROFILES_ACTIVE` environment variable, so it works for `spring-boot:run`,
-`bootRun`, a fat jar, and a hand-written command alike. A build tool owned by the project wins when it
-is complete (`mvnw` plus its wrapper properties, or `gradlew`); otherwise the global `mvn` / `gradle`
-is used, because a half-copied wrapper fails before it reaches the build. A backend build takes longer
-than a dev server, so it gets a five-minute readiness budget instead of three.
+### 🖥️ Frontend projects
 
-## What the model can see
+Pick a folder → it reads that folder once and offers every `scripts` entry → **you** choose the package
+manager and the script (neither is preselected; a lockfile is a hint, never applied for you).
+When the port answers the row says *ready* and gives the LAN address to hand to a phone or a colleague.
+Pin a Node version per entry — that affects this launch only, never your global `nvm use` — and a port.
+**Batch start** runs in parallel by default; the second mode starts them one at a time, each after the
+previous one answers on its port, in list order, for projects that must come up in sequence.
+The same folder may be added more than once: one entry per script of a monorepo, because script, port,
+and Node version are per entry. A row shows two actions (start/stop, edit); output and delete live
+under **More**.
 
-Two tools, and the line between them is deliberate:
+### ☕ Backend projects
 
-- `node_version` reads the versions this machine has and can switch, install, or remove one. Those
-  change the machine for everything running on it, so the tool says plainly that a write only follows
-  a request the user made by name.
-- `workbench_status` is read-only: the configured entries, which of them run, their port and LAN URL,
-  branch, the warnings the panel shows, and the last lines of each run's output. It answers "why did
-  my dev server stop" without being able to start or stop anything — starting a long-lived process
-  stays a user action.
+Spring Boot: pick Maven or Gradle, the profile comes from the project's own `application-*.yaml`, and
+the port is read from `server.port`. The profile travels as `SPRING_PROFILES_ACTIVE`, so
+`spring-boot:run`, `bootRun`, a fat jar, and your own command all work. A complete wrapper is preferred
+(half a `mvnw` cannot even build, which is worse to debug); otherwise the global `mvn` / `gradle`.
+Backends compile, so their readiness budget is 5 minutes against the frontend's 3.
 
-## What it never does
+## 🛡️ It does not touch your project
 
-The project directory is read-only for this plugin. It reads `package.json`, lockfiles, `.nvmrc`,
-`pom.xml` or `build.gradle`, `application-*.yaml`, and two git commands —
-`git --no-optional-locks rev-parse --abbrev-ref HEAD` and `git --no-optional-locks status
---porcelain`. The flag matters: without it, `git status` refreshes its cached stat data and rewrites
-`.git/index`, which is a file inside the project. It never writes, creates, renames, or deletes
-anything inside a project, never installs dependencies, never edits a lockfile or any project
-configuration, never runs a mutating git command, and never kills a process it did not start. It writes
-one file, `$DSH_HOME/slim-workbench/launchers.json`, with three sections: `entries` (your launchers),
-`nodeCache` (the last Node read, kept only so a failed live read still has something to show), and `runs`
-(the pids of what is running, so a restarted host can recognise them). Deleting the cache section costs
-nothing but that fallback.
+Not a promise — a test:
 
-Stopping reaches the whole tree. On Windows each run is put in a job object with
-`KILL_ON_JOB_CLOSE`, so a descendant that detached itself is still killed, and the tree dies with this
-host if the host dies; `taskkill /T` is the fallback when the job cannot be created. On POSIX the child
-leads its own process group. Should a process outlive the host anyway, the next start adopts it when
-**the pid is alive and its command line still matches the record** — the row shows an "adopted" tag and
-one Stop still kills the tree; a reused pid is never mistaken for ours.
+- The project directory is **read-only**: manifests, lockfiles, `.nvmrc`, `pom.xml` / `build.gradle`,
+  `application-*.yaml`, plus two read-only git commands
+- Those git calls carry `--no-optional-locks`. Without it, `git status` refreshes its stat cache and
+  **rewrites `.git/index`** — a file inside your project. A test compares the sha256 of `.git/index`
+  before and after
+- **No writes, no new files, no renames, no deletes** inside a project; no dependency installs; no
+  lockfile or config edits; no mutating git command
+- It kills only processes it started
+- It writes one file: `~/.dsh/slim-workbench/launchers.json`
 
-## Data and moving machines
+## 🧯 Stopping reaches the whole tree, and a crash is recoverable
 
-An entry stores the absolute project path, the command conditions you chose, a port, a priority,
+On Windows every run goes into a job object (`KILL_ON_JOB_CLOSE`): a grandchild that detached itself
+through `start /b` is still inside it, and if this host dies the tree dies with it. When the job cannot
+be created it falls back to `taskkill /T`; POSIX uses process groups.
+
+Should a process outlive the host anyway (a platform without job objects, say), the next start adopts
+it when **the pid is alive and its command line still matches**, marks the row *adopted*, and one Stop
+still clears the tree. A reused pid is never mistaken for ours.
+
+## 🤖 The model gets two tools
+
+- `node_version` — look up, switch, install, remove Node. These change the whole machine, so they run
+  only when you ask for them by name
+- `workbench_status` — **read-only**: entries, run state, ports, branches, warnings, and the last lines
+  each run printed. It answers "why did my dev server stop" without ever starting or stopping anything
+
+## 🚀 Getting started
+
+1. Click **Slim workbench** in the sidebar
+2. Check the current version under **Node management** (it works without nvm installed)
+3. **Frontend projects → Add**: pick a folder, pick a script, **Save and start**
+
+## 📦 Where the data is
+
+One entry stores: the absolute project path, the command conditions you chose, a port, a priority,
 whether it takes part in a batch start, and a small inspection snapshot (branch, port, warnings).
-The priority is editable and saved like any other field, but **nothing consumes it yet**: the start
-order is the list order, and the field's own hint says so. When an ordering rule arrives, the values
-are already there.
-Nothing else — no sources, no secrets, no environment.
+No sources, no secrets, no environment variables.
 
-Because the data file lives outside the package, **a fresh install starts with empty lists**. Copying
-`launchers.json` to `~/.dsh/slim-workbench/` on another machine brings the entries over; their
-absolute paths then have to be pointed at that machine's checkout, and pinned Node versions must
-exist there (a machine without nvm says so instead of pretending a version is missing).
+`launchers.json` beside it has three sections: `entries` (your launchers), `nodeCache` (the last Node
+read, kept only so a failed live read still has something to show), and `runs` (what is running, used to
+adopt processes after a crash). A fresh install starts empty; copying that JSON to another machine
+brings the entries over, with paths pointing at that machine's checkouts.
 
-Reading a project happens when an entry is saved, when its editor opens (the dialog re-reads the
-script list and the profiles, and shows a loading row until the read lands), or from **Refresh** above
-the list, which re-reads every entry. It never happens while the panel is open: opening the panel reads one JSON file, which is
-why it opens without a pause and without spawning `git`.
+Reading a project happens only when an entry is saved, when its editor opens (the dialog re-reads the
+script list and the profiles, showing a loading state), or from **Refresh** above the list. Opening the
+panel reads one JSON file, so it is instant and never calls `git`.
 
-## Limits worth knowing
+## 🧭 Worth knowing
 
-- Machine-wide Node switching needs nvm-windows; on macOS and Linux the pane lists versions and
-  explains where to switch instead.
-- The backend pane starts development goals (`spring-boot:run`, `bootRun`). It does not package a
-  jar first, and it does not manage Java versions.
-- A failed start shows the last line of output in the row, and **Output** shows the run's last 200
-  lines from the in-memory buffer, with terminal colour codes stripped. There is no streaming log and
-  nothing is written to disk; a run that started before this plugin was loaded is not visible at all.
-- The available-release page reads `https://nodejs.org/dist/index.json` and caches it for ten
-  minutes; installing downloads through nvm. Nothing else leaves the machine.
+- A machine-wide Node switch needs nvm-windows; on macOS and Linux this pane lists versions and says
+  where to switch instead
+- The backend pane runs development targets only (`spring-boot:run`, `bootRun`); it does not build a jar
+  first and does not manage Java versions
+- Logs live in memory only (a 64 KB ring buffer per run, colour codes stripped); nothing is written to
+  disk, and a process started before this plugin loaded has no output to show. A failed start shows the
+  **last line**, and **Output** shows the last 200
+- Priority is editable and stored, but **nothing consumes it yet**: the start order is the list order,
+  and the field's own hint says so
+- The install tab reads `https://nodejs.org/dist/index.json` and caches it for ten minutes; installs go
+  through nvm. Nothing else leaves the machine

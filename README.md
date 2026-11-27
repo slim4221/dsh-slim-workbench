@@ -1,11 +1,13 @@
 # Slim 工作台 · Slim workbench
 
-一个常驻 DeepSeek Harness 侧边栏的本地开发工作台：**Node 管理**、**前端项目管理**、**后端项目管理**。
-项目的目录与命令由你自己选，插件只记住这些选择条件 —— **项目目录对本插件只读**。
+**不用在五个终端之间来回切了。**
 
-A persistent local-development workbench panel for DeepSeek Harness: Node version management, a
-frontend launcher, and a Spring Boot launcher. It remembers the choices you make (folder, command,
-version, profile) and **never writes into a project directory**.
+哪个 dev server 起来了、占着哪个端口、在哪个分支、用的是哪个 Node —— 一个侧边栏面板看完。
+点开就有，它自己不会启动任何东西；项目目录对它**只读**。
+
+**Stop hopping between five terminals.** One sidebar panel shows which dev server is up, on which
+port, on which branch, under which Node. It opens instantly, starts nothing by itself, and treats your
+project directory as read-only.
 
 ---
 
