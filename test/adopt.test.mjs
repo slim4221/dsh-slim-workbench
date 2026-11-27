@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -36,9 +36,11 @@ function storeRuns(records) {
 /**
  * Whether a pid is alive.
  *
- * A killed child stays a zombie until its parent reaps it, and a zombie still answers
- * signal 0 — so on Linux the process state has to be read as well, or a test that waits
- * for a process to die would wait forever.
+ * Three cases, and they are not the same: no such process, a running one, and a zombie —
+ * a killed child whose parent has not reaped it yet still answers signal 0. On Linux the
+ * process state has to be read to tell the last two apart; the absence of /proc/<pid>
+ * there means the process is gone, while the absence of /proc at all means the platform
+ * has no procfs and signal 0 was the whole answer.
  * @param {number} pid the process id.
  * @returns {boolean} true when it is really running.
  */
@@ -48,13 +50,14 @@ function alive(pid) {
   } catch (error) {
     return error.code === 'EPERM'
   }
+  if (!existsSync('/proc/self')) return true
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
     const end = stat.lastIndexOf(')')
     return stat.slice(end + 2, end + 3) !== 'Z'
   } catch {
-    // No /proc (Windows): signal 0 answered, which is the whole answer there.
-    return true
+    // procfs is there but this pid is not: it has exited and been reaped.
+    return false
   }
 }
 

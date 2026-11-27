@@ -1284,16 +1284,27 @@ function forgetRunRecord(id) {
 
 /**
  * Whether a pid is still there.
+ *
+ * A zombie answers signal 0, and a zombie is not a run: its processes are gone. On Linux
+ * the state has to be read to tell them apart; no procfs means the platform has no zombies
+ * to worry about, and signal 0 is the whole answer.
  * @param {number} pid the process id.
- * @returns {boolean} true when something answers to it.
+ * @returns {boolean} true when something is really running under it.
  */
 function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false
   try {
     process.kill(pid, 0)
-    return true
   } catch (error) {
     return error?.code === 'EPERM'
+  }
+  if (!existsSync('/proc/self')) return true
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const end = stat.lastIndexOf(')')
+    return stat.slice(end + 2, end + 3) !== 'Z'
+  } catch {
+    return false
   }
 }
 
