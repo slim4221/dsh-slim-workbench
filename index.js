@@ -529,7 +529,12 @@ export function apply(ctx, config) {
     versionRoute(ROUTE_UNINSTALL, actions.uninstall)
 
     getRoute(ROUTE_LAUNCH_STATE, async () => readLauncherState(launcher()))
-    getRoute(ROUTE_LAUNCH_INSPECT, async (request) => inspectProject({ dir: queryParam(request, 'dir') }))
+    getRoute(ROUTE_LAUNCH_INSPECT, async (request) => inspectProject({
+      dir: queryParam(request, 'dir'),
+      // The editor asks for a read that ignores the short-lived fact cache, so opening it
+      // never shows the script list of five minutes ago.
+      fresh: queryParam(request, 'fresh') === '1',
+    }))
     getRoute(ROUTE_LAUNCH_PROBE, async (request) => {
       const port = Number.parseInt(String(queryParam(request, 'port') ?? ''), 10)
       if (!Number.isInteger(port) || port < 1 || port > 65535) {

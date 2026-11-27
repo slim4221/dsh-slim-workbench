@@ -182,6 +182,8 @@ window.__ModuleLoader__.load({
       launchRefresh: 'Refresh',
       launchRefreshing: 'Refreshing…',
       launchRefreshHint: 'Re-read branch, lockfile, and scripts of this project',
+      actionsMore: 'More',
+      launchScriptLoading: 'Reading scripts…',
       launchLog: 'Output',
       launchLogTitle: 'Output — {name}',
       launchLogEmpty: 'This run has not printed anything yet.',
@@ -214,7 +216,12 @@ window.__ModuleLoader__.load({
       launchFrontendEmpty: 'No frontend project yet.',
       launchBatch: 'Batch start',
       batchTitle: 'Batch start',
-      batchHint: 'Entries start in priority order: each one must answer on its port before the next starts, so a project the rest depend on (an SSO service, for example) can go first.',
+      batchMode: 'Start mode',
+      batchModeParallel: 'All at once',
+      batchModeSerial: 'One after another',
+      batchParallelHint: 'Every selected entry starts now, and each is watched until its own port answers. A project that depends on another may log connection errors until that one is listening.',
+      batchSerialHint: 'Each entry starts only after the previous one answers on its port — for projects that must come up in order, such as an SSO service.',
+      batchFailedSome: 'Some entries did not answer on their port; the rest keep running.',
       batchStart: 'Start',
       batchStarting: 'Starting…',
       batchStop: 'Stop',
@@ -352,6 +359,8 @@ window.__ModuleLoader__.load({
       launchRefresh: '更新',
       launchRefreshing: '更新中…',
       launchRefreshHint: '重新读取这个项目的分支、锁文件与脚本',
+      actionsMore: '更多',
+      launchScriptLoading: '正在读取脚本…',
       launchLog: '输出',
       launchLogTitle: '输出 — {name}',
       launchLogEmpty: '这次运行还没有打印任何内容。',
@@ -384,7 +393,12 @@ window.__ModuleLoader__.load({
       launchFrontendEmpty: '还没有前端项目。',
       launchBatch: '批量启动',
       batchTitle: '批量启动',
-      batchHint: '按优先级从小到大依次启动：上一个端口就绪后才启动下一个 —— 所以被其他项目依赖的服务（例如 SSO）要排在前面。',
+      batchMode: '启动方式',
+      batchModeParallel: '同时启动',
+      batchModeSerial: '逐个启动',
+      batchParallelHint: '选中的条目立刻全部启动，各自等自己的端口应答；有依赖的项目可能在前者就绪前报连接错误。',
+      batchSerialHint: '上一条端口就绪后才启动下一条 —— 需要按顺序起的项目（例如 SSO）用这个。',
+      batchFailedSome: '有启动项端口未就绪；已经起来的继续运行。',
       batchStart: '开始启动',
       batchStarting: '启动中…',
       batchStop: '停止',
@@ -518,14 +532,17 @@ window.__ModuleLoader__.load({
     const LAUNCH_STYLES = `
 .lch-table { table-layout: fixed; }
 .lch-table th { position: sticky; top: 0; z-index: 1; padding-top: 8px; padding-bottom: 8px; background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1)); }
-.lch-table th:nth-child(1) { width: 26%; }
+.lch-table th:nth-child(1) { width: 24%; }
 .lch-table th:nth-child(2) { width: 11%; }
-.lch-table th:nth-child(3) { width: 9%; }
+.lch-table th:nth-child(3) { width: 10%; }
 .lch-table th:nth-child(4) { width: 20%; }
-.lch-table th:nth-child(5) { width: 8%; }
+.lch-table th:nth-child(5) { width: 9%; }
 .lch-table th:nth-child(6) { width: 12%; }
-.lch-table th:nth-child(7) { width: 14%; }
-.lch-trow td { padding: 11px 8px; vertical-align: top; }
+/* Fixed, not a share of the width: the actions must never wrap onto a second line. */
+.lch-table th:nth-child(7) { width: 168px; }
+.lch-trow td { padding: 10px 8px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The project cell is deliberately two lines: name over directory. */
+.lch-trow td:first-child { white-space: normal; }
 .lch-cell-project { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lch-cell-name { overflow: hidden; font-size: 13.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .lch-cell-cwd { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 11.5px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); text-overflow: ellipsis; white-space: nowrap; }
@@ -565,7 +582,7 @@ window.__ModuleLoader__.load({
 .lch-warnline[data-level="notice"] { color: var(--dsw-alias-state-warn-primary); }
 .lch-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .lch-headactions { flex: none; display: inline-flex; align-items: center; gap: 8px; }
-.lch-actions { flex: none; display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; }
+.lch-actions { flex: none; display: inline-flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 6px; }
 .lch-actions .ndv-button { min-height: 26px; padding: 3px 7px; font-size: 12px; }
 .lch-primary { color: var(--dsw-alias-label-primary-foreground, #ffffff); background: var(--dsw-alias-brand-primary); border-color: transparent; }
 @media (hover: hover) {
@@ -640,7 +657,17 @@ window.__ModuleLoader__.load({
 .lch-footer { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
 .lch-footer-path { margin-left: auto; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 11px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); text-overflow: ellipsis; white-space: nowrap; }
 .lch-table th.ndv-col-actions { text-align: left; }
-.lch-table td.ndv-col-actions { text-align: left; }
+.lch-table td.ndv-col-actions { text-align: left; white-space: nowrap; overflow: visible; }
+.lch-more { display: inline-flex; align-items: center; gap: 4px; }
+.lch-caret { font-size: 9px; line-height: 1; opacity: 0.7; }
+.lch-menu-overlay { position: fixed; inset: 0; z-index: 55; pointer-events: none; }
+.lch-menu { position: fixed; display: flex; flex-direction: column; gap: 2px; min-width: 152px; padding: 5px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-1, #ffffff); box-shadow: var(--dsw-elevation-prominent, 0 12px 32px rgba(0, 0, 0, 0.18)); pointer-events: auto; }
+.lch-menu-item { appearance: none; margin: 0; padding: 7px 10px; font: inherit; font-size: 12.5px; line-height: 1.4; text-align: left; color: var(--dsw-alias-label-primary); background: transparent; border: 0; border-radius: var(--dsw-radius-sm, 6px); cursor: pointer; }
+@media (hover: hover) {
+  .lch-menu-item:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-2)); }
+}
+.lch-menu-item:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-brand-primary)); outline-offset: -1px; }
+.lch-menu-item:disabled { opacity: 0.55; cursor: default; }
 `
 
     /**
@@ -1170,12 +1197,19 @@ window.__ModuleLoader__.load({
       }, [confirmOpen])
 
       const [insp, setInsp] = React.useState({ status: 'idle', facts: null, error: null })
+      // A re-read forced by opening the editor, which must not sit behind the fact cache.
+      const [inspectToken, setInspectToken] = React.useState(0)
+      const freshInspect = React.useRef(false)
+      // The row whose More menu is open, anchored to the button that opened it.
+      const [menu, setMenu] = React.useState(null)
+      const menuRef = React.useRef(null)
       // The entry whose output is open, and what the Host last answered for it.
       const [logTarget, setLogTarget] = React.useState(null)
       const [logView, setLogView] = React.useState(null)
       const logOpen = logTarget !== null
-      // Batch start: which entries were picked, and how far the run got.
+      // Batch start: which entries were picked, how they are started, and how far the run got.
       const [batchOpen, setBatchOpen] = React.useState(false)
+      const [batchMode, setBatchMode] = React.useState('parallel')
       const [batchRun, setBatchRun] = React.useState(null)
       const batchCancel = React.useRef(false)
       const fieldRef = React.useRef(null)
@@ -1296,17 +1330,23 @@ window.__ModuleLoader__.load({
         profile: entry.profile ?? null,
       })
 
-      // Read the folder's facts (scripts, lockfile, git, warnings) whenever the path changes.
+      // Read the folder's facts (scripts, lockfile, git, warnings) whenever the path
+      // changes, or when the editor is opened on an entry and asks for a fresh read.
       React.useEffect(() => {
         const directory = typeof form?.projectPath === 'string' ? form.projectPath.trim() : ''
         if (directory === '') {
           setInsp({ status: 'idle', facts: null, error: null })
           return undefined
         }
+        const fresh = freshInspect.current
+        freshInspect.current = false
         const controller = new AbortController()
+        // The previous facts stay for the hint, but the script list shows a loading row:
+        // what the user picks must come from the read that is still running.
         setInsp((current) => ({ status: 'loading', facts: current.facts, error: null }))
         const timer = setTimeout(() => {
-          readJson(`${ROUTES.launchInspect}?dir=${encodeURIComponent(directory)}&stack=${stack}`, {
+          const query = `dir=${encodeURIComponent(directory)}&stack=${stack}${fresh ? '&fresh=1' : ''}`
+          readJson(`${ROUTES.launchInspect}?${query}`, {
             headers: { accept: 'application/json' },
             signal: controller.signal,
           }).then(
@@ -1334,7 +1374,75 @@ window.__ModuleLoader__.load({
           clearTimeout(timer)
           controller.abort()
         }
-      }, [form?.projectPath])
+      }, [form?.projectPath, inspectToken])
+
+      /**
+       * Open the editor for one entry, re-reading that project first.
+       *
+       * The row no longer carries a 更新 action: opening the editor is the moment the
+       * project is read again, so the script list can never be the stale one and the two
+       * buttons a row shows stay the two a run actually needs.
+       * @param {object} entry the entry to edit.
+       * @returns {void}
+       */
+      const openEditor = (entry) => {
+        freshInspect.current = true
+        setForm(formOf(entry))
+        setInspectToken((value) => value + 1)
+      }
+
+      /**
+       * Open one row's More menu under its button, kept inside the viewport.
+       * @param {object} entry the entry the menu acts on.
+       * @param {object | null} node the button that opened it.
+       * @returns {void}
+       */
+      const openMenu = (entry, node) => {
+        const width = 152
+        const height = 3 * 34 + 12
+        const rect = node === null || node === undefined || typeof node.getBoundingClientRect !== 'function'
+          ? null
+          : node.getBoundingClientRect()
+        const viewportWidth = typeof window.innerWidth === 'number' ? window.innerWidth : 1024
+        const viewportHeight = typeof window.innerHeight === 'number' ? window.innerHeight : 768
+        const right = rect === null ? viewportWidth - 8 : rect.right
+        const bottom = rect === null ? 8 : rect.bottom
+        setMenu({
+          entry,
+          left: Math.max(8, Math.min(right - width, viewportWidth - width - 8)),
+          top: Math.max(8, Math.min(bottom + 4, viewportHeight - height - 8)),
+        })
+      }
+
+      // Escape, an outside click, a scroll, or a resize closes the menu: it is anchored
+      // to a row that moves. The overlay itself lets clicks through, so closing the menu
+      // never costs the click the user meant to make.
+      const menuOpen = menu !== null
+      React.useEffect(() => {
+        if (!menuOpen) return undefined
+        const close = () => { setMenu(null) }
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return
+          event.stopPropagation()
+          close()
+        }
+        const onMouseDown = (event) => {
+          const node = menuRef.current
+          if (node === null || node === undefined) return
+          if (typeof node.contains === 'function' && node.contains(event.target)) return
+          close()
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        document.addEventListener('mousedown', onMouseDown, true)
+        window.addEventListener('scroll', close, true)
+        window.addEventListener('resize', close)
+        return () => {
+          document.removeEventListener('keydown', onKeyDown, true)
+          document.removeEventListener('mousedown', onMouseDown, true)
+          window.removeEventListener('scroll', close, true)
+          window.removeEventListener('resize', close)
+        }
+      }, [menuOpen])
 
       /** Open the Host-native folder picker and adopt the choice. */
       const pickFolder = async () => {
@@ -1486,7 +1594,10 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * The actions one entry offers, given its run state.
+       * The two actions a row always shows, plus everything else under More.
+       *
+       * A row is scanned, not studied: 启动/停止 and 编辑 are the two it earns, and 输出,
+       * 刷新, 删除 stay one click away instead of pushing the column into a second line.
        * @param {object} entry the entry.
        * @param {boolean} blocked whether a warning forbids starting it.
        * @returns {object} the action group.
@@ -1515,37 +1626,73 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'lch-actions' },
           primary,
           h('button', {
-            key: 'refresh',
-            type: 'button',
-            className: 'ndv-button',
-            disabled: busy,
-            title: t('launchRefreshHint'),
-            'aria-label': `${t('launchRefresh')} ${entry.name}`,
-            onClick: () => { act('refresh', entry).catch(() => {}) },
-          }, working === 'refresh' ? t('launchRefreshing') : t('launchRefresh')),
-          h('button', {
-            key: 'log',
-            type: 'button',
-            className: 'ndv-button',
-            title: t('launchLogHint'),
-            'aria-label': `${t('launchLog')} ${entry.name}`,
-            onClick: () => { setLogTarget(entry) },
-          }, t('launchLog')),
-          h('button', {
             key: 'edit',
             type: 'button',
             className: 'ndv-button',
             disabled: busy,
-            onClick: () => { setForm(formOf(entry)) },
+            title: t('launchEdit'),
+            onClick: () => { openEditor(entry) },
           }, t('launchEdit')),
           h('button', {
-            key: 'remove',
+            key: 'more',
             type: 'button',
-            className: 'ndv-button lch-danger',
+            className: 'ndv-button lch-more',
+            'aria-haspopup': 'menu',
+            'aria-expanded': menu !== null && menu.entry.id === entry.id ? 'true' : 'false',
+            'aria-label': `${t('actionsMore')} ${entry.name}`,
+            onClick: (event) => { openMenu(entry, event.currentTarget) },
+          }, t('actionsMore'), h('span', { className: 'lch-caret', 'aria-hidden': 'true' }, '▾')),
+        )
+      }
+
+      /**
+       * The More menu: the row's remaining actions, floating above the table.
+       * @returns {object} the overlay element.
+       */
+      function moreMenu() {
+        const entry = menu.entry
+        const working = pending !== null && pending.id === entry.id ? pending.kind : null
+        const items = [
+          {
+            key: 'log',
+            label: t('launchLog'),
+            title: t('launchLogHint'),
+            run: () => { setLogTarget(entry) },
+          },
+          {
+            key: 'refresh',
+            label: working === 'refresh' ? t('launchRefreshing') : t('launchRefresh'),
+            title: t('launchRefreshHint'),
             disabled: busy,
-            'aria-label': `${t('launchRemove')} ${entry.name}`,
-            onClick: () => { setRemoveTarget(entry) },
-          }, t('launchRemove')),
+            run: () => { act('refresh', entry).catch(() => {}) },
+          },
+          {
+            key: 'remove',
+            label: t('launchRemove'),
+            danger: true,
+            disabled: busy,
+            run: () => { setRemoveTarget(entry) },
+          },
+        ]
+        return h('div', {
+          className: 'lch-menu-overlay',
+          onContextMenu: (event) => { event.preventDefault(); setMenu(null) },
+        },
+          h('div', {
+            className: 'lch-menu',
+            role: 'menu',
+            ref: menuRef,
+            'aria-label': `${t('actionsMore')} ${entry.name}`,
+            style: { left: `${menu.left}px`, top: `${menu.top}px` },
+          }, items.map((item) => h('button', {
+            key: item.key,
+            type: 'button',
+            role: 'menuitem',
+            className: item.danger ? 'lch-menu-item lch-danger' : 'lch-menu-item',
+            title: item.title,
+            disabled: item.disabled === true,
+            onClick: () => { setMenu(null); item.run() },
+          }, item.label))),
         )
       }
       /**
@@ -1580,6 +1727,7 @@ window.__ModuleLoader__.load({
         if (form.name.trim() === '') warnings.push({ level: 'block', text: t('launchNeedName') })
 
         const scripts = orderedScripts(Array.isArray(facts?.scripts) ? facts.scripts : [])
+        const scriptsLoading = insp.status === 'loading'
         const backendFacts = facts?.backend ?? null
         const profiles = Array.isArray(backendFacts?.profiles) ? backendFacts.profiles : []
         const activeProfile = backendFacts?.activeProfile ?? null
@@ -1589,7 +1737,9 @@ window.__ModuleLoader__.load({
         const builderName = (builder) => (builder === 'gradle' ? t('launchBuilderGradle') : t('launchBuilderMaven'))
         const goalOf = (builder) => (builder === 'gradle' ? 'bootRun' : 'spring-boot:run')
         const blocked = warnings.some((warning) => warning.level === 'block')
-        const canSave = !busy && !blocked
+        // Saving before the folder has been read would submit a choice the user could not
+        // see yet; the read is quick, and the button says so by staying disabled.
+        const canSave = !busy && !blocked && !scriptsLoading
         const lockfile = facts?.lockfile ?? null
         const detection = insp.status === 'loading'
           ? t('launchInspecting')
@@ -1695,7 +1845,10 @@ window.__ModuleLoader__.load({
             h('span', null, t('launchScriptLabel')),
             h('select', {
               className: 'lch-select',
-              value: form.kind === 'custom' ? '__custom__' : form.script ?? '',
+              // While the folder is being read, the list belongs to the previous read:
+              // offering it would let the user pick a script that no longer exists.
+              disabled: scriptsLoading,
+              value: scriptsLoading ? '' : form.kind === 'custom' ? '__custom__' : form.script ?? '',
               onChange: (event) => {
                 const value = event.target.value
                 if (value === '__custom__') setForm({ ...form, kind: 'custom', script: null })
@@ -1703,9 +1856,13 @@ window.__ModuleLoader__.load({
                 else setForm({ ...form, kind: 'script', script: value })
               },
             },
-              h('option', { value: '' }, t('launchScriptPlaceholder')),
-              scripts.map((item) => h('option', { key: item.name, value: item.name }, `${item.name} — ${item.value}`)),
-              h('option', { value: '__custom__' }, t('launchScriptCustom')),
+              scriptsLoading
+                ? h('option', { value: '' }, t('launchScriptLoading'))
+                : [
+                  h('option', { key: 'placeholder', value: '' }, t('launchScriptPlaceholder')),
+                  ...scripts.map((item) => h('option', { key: item.name, value: item.name }, `${item.name} — ${item.value}`)),
+                  h('option', { key: 'custom', value: '__custom__' }, t('launchScriptCustom')),
+                ],
             ),
           ),
           form.kind === 'custom'
@@ -2026,10 +2183,10 @@ window.__ModuleLoader__.load({
       /**
        * Wait until one entry answers on its port, exits, or runs out of time.
        *
-       * A dev server is "up" when its port accepts a connection; starting the next
-       * project earlier would race against it (the SSO case: the others log in
-       * through it, so it has to be listening first). The budget follows the stack:
-       * a backend entry compiles before it listens, and the Host waits longer for it.
+       * A dev server is "up" when its port accepts a connection; in the serial mode
+       * starting the next project earlier would race against it (the SSO case: the
+       * others log in through it, so it has to be listening first). The budget follows
+       * the stack: a backend entry compiles before it listens, so it gets longer.
        * @param {string} id the entry.
        * @param {number} budget how long this entry may take, in milliseconds.
        * @returns {Promise<string>} `ready`, `cancelled`, `missing`, `timeout`, or `failed:<tail>`.
@@ -2050,46 +2207,107 @@ window.__ModuleLoader__.load({
         return 'timeout'
       }
 
+      /** How long one entry of this stack may take to answer on its port. */
+      const readyBudgetOf = (entry) => (
+        entry.stack === 'backend' ? BATCH_READY_TIMEOUT_BACKEND_MS : BATCH_READY_TIMEOUT_MS
+      )
+
+      /**
+       * Start one entry from a batch, recording a refusal instead of throwing.
+       * @param {object} entry the entry.
+       * @param {object} results per-entry outcomes, mutated in place.
+       * @returns {Promise<boolean>} whether it started.
+       */
+      async function startForBatch(entry, results) {
+        try {
+          const outcome = await readJson(ROUTES.launchStart, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ id: entry.id }),
+          })
+          if (outcome?.ok !== true) {
+            results[entry.id] = `failed:${String(outcome?.message ?? '')}`
+            return false
+          }
+          setData({ status: 'ready', payload: outcome.state, error: null })
+          return true
+        } catch (error) {
+          results[entry.id] = `failed:${String(error?.message ?? error)}`
+          return false
+        }
+      }
+
+      /**
+       * Start every picked entry at once, then watch all their ports together.
+       *
+       * This is the default because most projects do not depend on each other, and
+       * waiting for a port that will answer in 40 seconds to start the next one only
+       * makes the batch as slow as the sum of its parts. A dependency that needs the
+       * other service already listening belongs to the serial mode.
+       * @param {Array<object>} queue the entries, in priority order.
+       * @param {object} results per-entry outcomes, mutated in place.
+       * @param {(phase: string, index: number) => void} publish push the dialog's state.
+       * @returns {Promise<void>} settles when every port answered, failed, or ran out of time.
+       */
+      async function runBatchParallel(queue, results, publish) {
+        const waiting = new Map()
+        for (const entry of queue) {
+          if (batchCancel.current) {
+            for (const pendingEntry of queue) {
+              if (results[pendingEntry.id] === undefined) results[pendingEntry.id] = 'cancelled'
+            }
+            publish('cancelled', 0)
+            return
+          }
+          results[entry.id] = 'starting'
+          publish('running', 0)
+          if (await startForBatch(entry, results)) waiting.set(entry.id, Date.now() + readyBudgetOf(entry))
+        }
+        publish('running', 0)
+        while (waiting.size > 0) {
+          if (batchCancel.current) {
+            for (const id of waiting.keys()) results[id] = 'cancelled'
+            publish('cancelled', 0)
+            return
+          }
+          await new Promise((resolve) => { setTimeout(resolve, 800) })
+          let payload
+          try {
+            payload = await readJson(ROUTES.launchState, { headers: { accept: 'application/json' } })
+          } catch (error) {
+            for (const id of waiting.keys()) results[id] = `failed:${String(error?.message ?? error)}`
+            publish('failed', 0)
+            return
+          }
+          setData({ status: 'ready', payload, error: null })
+          for (const [id, deadline] of [...waiting]) {
+            const row = (payload?.entries ?? []).find((candidate) => candidate.id === id)
+            if (row === undefined) { results[id] = 'missing'; waiting.delete(id); continue }
+            if (row.phase === 'ready') { results[id] = 'ready'; waiting.delete(id); continue }
+            if (row.status === 'exited') { results[id] = `failed:${String(row.tail ?? '')}`; waiting.delete(id); continue }
+            if (Date.now() > deadline) { results[id] = 'timeout'; waiting.delete(id) }
+          }
+          publish('running', 0)
+        }
+        const allReady = Object.values(results).every((value) => value === 'ready')
+        publish(allReady ? 'done' : 'failed', 0)
+      }
+
       /**
        * Start the picked entries one at a time, each after the previous one is up.
+       * @param {Array<object>} queue the entries, in priority order.
+       * @param {object} results per-entry outcomes, mutated in place.
+       * @param {(phase: string, index: number) => void} publish push the dialog's state.
        * @returns {Promise<void>} settles when the run stops, finishes, or fails.
        */
-      async function runBatch() {
-        const queue = orderedEntries().filter((entry) => entry.batchEnabled !== false && entry.status !== 'running')
-        if (queue.length === 0) {
-          setBatchRun({ phase: 'failed', index: 0, results: {}, message: t('batchNothing') })
-          return
-        }
-        batchCancel.current = false
-        const results = {}
-        const publish = (phase, index) => { setBatchRun({ phase, index, results: { ...results } }) }
+      async function runBatchSerial(queue, results, publish) {
         for (let index = 0; index < queue.length; index += 1) {
           const entry = queue[index]
           if (batchCancel.current) { publish('cancelled', index); return }
           results[entry.id] = 'starting'
           publish('running', index)
-          let outcome
-          try {
-            outcome = await readJson(ROUTES.launchStart, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', accept: 'application/json' },
-              body: JSON.stringify({ id: entry.id }),
-            })
-          } catch (error) {
-            results[entry.id] = `failed:${String(error?.message ?? error)}`
-            publish('failed', index)
-            return
-          }
-          if (outcome?.ok === true) setData({ status: 'ready', payload: outcome.state, error: null })
-          if (outcome?.ok !== true) {
-            results[entry.id] = `failed:${String(outcome?.message ?? '')}`
-            publish('failed', index)
-            return
-          }
-          const waited = await waitForReady(
-            entry.id,
-            entry.stack === 'backend' ? BATCH_READY_TIMEOUT_BACKEND_MS : BATCH_READY_TIMEOUT_MS,
-          )
+          if (!await startForBatch(entry, results)) { publish('failed', index); return }
+          const waited = await waitForReady(entry.id, readyBudgetOf(entry))
           if (waited === 'ready') {
             results[entry.id] = 'ready'
             publish('running', index + 1)
@@ -2100,6 +2318,23 @@ window.__ModuleLoader__.load({
           return
         }
         publish('done', queue.length)
+      }
+
+      /**
+       * Run the batch in the mode the dialog is set to.
+       * @returns {Promise<void>} settles when the run stops or every entry is accounted for.
+       */
+      async function runBatch() {
+        const queue = orderedEntries().filter((entry) => entry.batchEnabled !== false && entry.status !== 'running')
+        if (queue.length === 0) {
+          setBatchRun({ phase: 'failed', index: 0, results: {}, message: t('batchNothing') })
+          return
+        }
+        batchCancel.current = false
+        const results = {}
+        const publish = (phase, index) => { setBatchRun({ phase, index, results: { ...results } }) }
+        if (batchMode === 'serial') await runBatchSerial(queue, results, publish)
+        else await runBatchParallel(queue, results, publish)
       }
 
       /**
@@ -2185,7 +2420,20 @@ window.__ModuleLoader__.load({
                 onClick: () => { setBatchOpen(false); setBatchRun(null) },
               }, '\u2715'),
             ),
-            h('p', { className: 'lch-hint' }, t('batchHint')),
+            h('div', { className: 'lch-field' },
+              h('span', null, t('batchMode')),
+              h('div', { className: 'lch-seg', role: 'group', 'aria-label': t('batchMode') },
+                ['parallel', 'serial'].map((mode) => h('button', {
+                  key: mode,
+                  type: 'button',
+                  'data-on': batchMode === mode ? 'true' : 'false',
+                  'aria-pressed': batchMode === mode,
+                  disabled: running,
+                  onClick: () => { setBatchMode(mode) },
+                }, mode === 'parallel' ? t('batchModeParallel') : t('batchModeSerial')))),
+            ),
+            h('p', { className: 'lch-hint' },
+              batchMode === 'parallel' ? t('batchParallelHint') : t('batchSerialHint')),
             h('ul', { className: 'lch-batch-list' }, rows.map((entry, index) => {
               const state = statusOfRow(entry)
               const alreadyRunning = entry.status === 'running'
@@ -2213,7 +2461,7 @@ window.__ModuleLoader__.load({
               ? t('batchDone')
               : batchRun.phase === 'cancelled'
                 ? t('batchCancelledHint')
-                : t('batchStoppedHint')),
+                : batchMode === 'serial' ? t('batchStoppedHint') : t('batchFailedSome')),
             h('div', { className: 'lch-form-actions' }, footer),
           ),
         )
@@ -2425,6 +2673,7 @@ window.__ModuleLoader__.load({
         batchOpen ? batchModal() : null,
         removeTarget === null ? null : removeModal(),
         logTarget === null ? null : logModal(),
+        menu === null ? null : moreMenu(),
         h('p', { className: 'ndv-footnote lch-footer' },
           h('span', null, t('launchNote')),
           typeof data.payload?.dataFile === 'string' && data.payload.dataFile !== ''

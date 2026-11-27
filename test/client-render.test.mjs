@@ -179,7 +179,7 @@ test('the panel draws its frame and all three systems', () => {
  * address one slot. The length assertion below makes a reordering fail loudly here
  * instead of quietly seeding the wrong state.
  */
-const HOOK = { data: 0, insp: 6, logTarget: 7, logView: 8, total: 11 }
+const HOOK = { data: 0, insp: 6, menu: 8, logTarget: 9, logView: 10, batchOpen: 11, batchRun: 13, total: 14 }
 
 test('an entry row draws its command, state, and actions', () => {
   // Bring the frontend pane up, then hand its data state a ready payload: the row
@@ -235,11 +235,40 @@ test('an entry row draws its command, state, and actions', () => {
   // The actions a row offers, including the output view this version added.
   const actions = elementsWithClass(tree, 'lch-actions')
   assert.equal(actions.length, 1)
+  // Two actions and a menu: the row must not carry five buttons into a second line.
+  const buttons = actions[0].children
+  assert.equal(buttons.length, 3)
+  assert.equal(textsOf(buttons[0]).join(''), dictionaries.en.launchStop)
+  assert.equal(textsOf(buttons[1]).join(''), dictionaries.en.launchEdit)
+  assert.ok(textsOf(buttons[2]).join('').startsWith(dictionaries.en.actionsMore))
+})
+
+test('the More menu holds the actions the row no longer shows', () => {
+  const launcher = seen.get('LauncherSystem')
+  const state = stateOf(stores, launcher)
+  state[HOOK.menu] = { entry: state[HOOK.data].payload.entries[0], left: 40, top: 40 }
+  const tree = renderPanel()
+  const menu = elementsWithClass(tree, 'lch-menu')
+  assert.equal(menu.length, 1)
+  const items = elementsWithClass(menu[0], 'lch-menu-item')
   assert.deepEqual(
-    actions[0].children.map((child) => textsOf(child).join('')),
-    ['launchStop', 'launchRefresh', 'launchLog', 'launchEdit', 'launchRemove']
-      .map((key) => dictionaries.en[key]),
+    items.map((item) => textsOf(item).join('')),
+    [dictionaries.en.launchLog, dictionaries.en.launchRefresh, dictionaries.en.launchRemove],
   )
+  state[HOOK.menu] = null
+})
+
+test('the batch dialog offers both start modes', () => {
+  const launcher = seen.get('LauncherSystem')
+  const state = stateOf(stores, launcher)
+  state[HOOK.batchOpen] = true
+  const tree = renderPanel()
+  const text = textsOf(tree)
+  assert.ok(text.includes(dictionaries.en.batchMode))
+  assert.ok(text.includes(dictionaries.en.batchModeParallel))
+  assert.ok(text.includes(dictionaries.en.batchModeSerial))
+  assert.ok(text.includes(dictionaries.en.batchParallelHint))
+  state[HOOK.batchOpen] = false
 })
 
 test('the output dialog draws the buffered lines', () => {

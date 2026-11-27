@@ -22,11 +22,12 @@ package manager and the script — neither is preselected, and a lockfile is sho
 a hint, never applied on your behalf. Optional: pin a Node version for this entry only, a port, and a
 priority. Start runs the command in that folder; the row reports *starting*, then *ready* when the
 port answers, and then shows the LAN address (the local address is implied by the machine you are
-on). **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
-refreshed while the dialog is open. **Batch start** runs the selected entries one after another,
-waiting for each one's port before starting the next, which is what a project depending on an SSO
-service needs; its readiness budget follows the stack (three minutes for a dev server, five for a
-backend).
+on). A row shows two actions — start/stop and edit — and keeps output, refresh, and delete under
+**More**. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
+refreshed while the dialog is open. **Batch start** starts the selected entries at the same time by
+default; a second mode starts them one by one, each after the previous one answers on its port, for
+projects that must come up in order (an SSO service, for example). Its readiness budget follows the
+stack: three minutes for a dev server, five for a backend.
 
 **Backend projects** covers Spring Boot: choose Maven or Gradle, choose a Spring profile from the
 `application-*.yaml` files the project ships, and the port is read from `server.port`. The profile
@@ -67,9 +68,10 @@ Because the data file lives outside the package, **a fresh install starts with e
 absolute paths then have to be pointed at that machine's checkout, and pinned Node versions must
 exist there (a machine without nvm says so instead of pretending a version is missing).
 
-Reading a project happens when an entry is saved or when you press **Refresh** on its row, never while
-the panel is open. Opening the panel reads one JSON file, which is why it opens without a pause and
-without spawning `git`.
+Reading a project happens when an entry is saved, when its editor opens (the dialog re-reads the
+script list and the profiles, and shows a loading row until the read lands), or from **More →
+refresh**. It never happens while the panel is open: opening the panel reads one JSON file, which is
+why it opens without a pause and without spawning `git`.
 
 ## Limits worth knowing
 

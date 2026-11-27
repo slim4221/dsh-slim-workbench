@@ -1415,7 +1415,7 @@ export async function stopEntry(input, context) {
 
 /**
  * Inspect one project directory, read-only, for the entry form.
- * @param {unknown} input `{ dir }` from the query string or a body.
+ * @param {unknown} input `{ dir, fresh }` from the query string or a body.
  * @returns {Promise<object>} the facts, or `{ ok: false, code, message }`.
  */
 export async function inspectProject(input) {
@@ -1424,7 +1424,8 @@ export async function inspectProject(input) {
   if (!path.isAbsolute(directory)) {
     return { ok: false, code: 'invalid-directory', message: `the directory must be an absolute path: ${directory}` }
   }
-  const facts = await projectFacts(directory)
+  // `fresh` is what the editor sends: the user asked to see this folder as it is now.
+  const facts = await projectFacts(directory, input?.fresh === true)
   return { ok: true, ...facts }
 }
 
