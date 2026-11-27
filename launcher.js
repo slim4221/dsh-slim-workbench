@@ -1834,6 +1834,24 @@ export function stopAll() {
     void terminate(run)
   }
   runs.clear()
+  forgetAllRunRecords()
+}
+
+/**
+ * Forget every run record in one write.
+ *
+ * A normal unload stops everything too, so leaving the records behind would tell the next
+ * start that pids are running when they are not.
+ * @returns {void}
+ */
+function forgetAllRunRecords() {
+  serialize(async () => {
+    const document = readDocument()
+    if (document.runs.length === 0) return
+    writeDocument({ ...document, runs: [] })
+  }).catch(() => {
+    // A stale record is dropped by the next reconcile anyway.
+  })
 }
 
 /**
