@@ -52,12 +52,6 @@ const STACKS = ['frontend', 'backend']
 /** The start goal each builder runs, by default. */
 const BUILDER_GOALS = { maven: 'spring-boot:run', gradle: 'bootRun' }
 
-/** Priority range: smaller starts earlier; `0` is the most urgent level. */
-const PRIORITY_MIN = 0
-const PRIORITY_MAX = 99
-/** What a new entry gets, and what a missing value means: one step below the top. */
-const PRIORITY_DEFAULT = 1
-
 /** Port range accepted for readiness probes. */
 const PORT_MIN = 1
 const PORT_MAX = 65535
@@ -262,22 +256,6 @@ function normalizePort(value) {
 }
 
 /**
- * Normalize a priority into `0…99`.
- *
- * A missing value becomes {@link PRIORITY_DEFAULT}; `0` is accepted as the most
- * urgent level but is never applied on its own, so an entry only sorts ahead of
- * the rest when its priority was set by hand.
- * @param {unknown} value candidate.
- * @returns {number} the priority.
- */
-function normalizePriority(value) {
-  if (value === null || value === undefined || value === '') return PRIORITY_DEFAULT
-  const number = typeof value === 'number' ? value : Number.parseInt(String(value), 10)
-  if (!Number.isFinite(number)) return PRIORITY_DEFAULT
-  return Math.min(PRIORITY_MAX, Math.max(PRIORITY_MIN, Math.round(number)))
-}
-
-/**
  * Normalize one stored record, migrating the version-1 `command` shape.
  * @param {unknown} raw stored record.
  * @param {number} index position in the stored array, used for a stable order.
@@ -317,7 +295,8 @@ function normalizeEntry(raw, index) {
     customCommand: kind === 'custom' ? customCommand : null,
     nodeVersion: normalizeVersion(raw.nodeVersion),
     port: normalizePort(raw.port),
-    priority: normalizePriority(raw.priority),
+    // A stored `priority` from an older version is simply dropped: batch start runs in
+    // creation order, because starting everything at once has no order to honour.
     // Whether this entry takes part in a batch start. Entries written before this
     // field existed participate by default, and a legacy atch key is still honored.
     batchEnabled: (raw.batchEnabled ?? raw.batch) !== false,
@@ -1092,7 +1071,6 @@ async function validateEntry(input, context) {
       customCommand: kind === 'custom' ? customCommand : null,
       nodeVersion,
       port: normalizePort(source.port),
-      priority: normalizePriority(source.priority),
       batchEnabled: source.batchEnabled !== false,
     },
   }
@@ -1148,7 +1126,6 @@ export function saveEntry(input, context) {
       customCommand: checked.value.customCommand,
       nodeVersion: checked.value.nodeVersion,
       port: checked.value.port,
-      priority: checked.value.priority,
       batchEnabled: checked.value.batchEnabled,
       createdAt: existing?.createdAt ?? Date.now(),
     }
@@ -1291,6 +1268,18 @@ export async function startEntry(input, context) {
       // leave the original (unpinned) entry to win or lose by accident of ordering.
       const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
       env[pathKey] = `${nodeDirectory}${path.delimiter}${env[pathKey] ?? ''}`
+    } else {
+      // The panel disables Start for this case; refusing here too keeps the promise off
+      // the browser. A machine with no version manager at all is different: there the pin
+      // simply cannot apply, and the run proceeds on the system default with a notice.
+      const manager = typeof context.node.install === 'function' ? context.node.install() : null
+      if (manager !== null && manager.available === true) {
+        return {
+          ok: false,
+          code: 'node-missing',
+          message: `锁定版本 v${entry.nodeVersion} 没装在这台机器上：先安装它，或改回跟随工作台`,
+        }
+      }
     }
   }
 
@@ -1482,7 +1471,6 @@ export const internals = {
   logTail,
   normalizeEntry,
   normalizePort,
-  normalizePriority,
   normalizeVersion,
   stripAnsi,
   validateEntry,

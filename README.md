@@ -14,7 +14,7 @@ version, profile) and **never writes into a project directory**.
 | 系统 | 做什么 |
 | --- | --- |
 | **Node 管理** | 列出 nvm-windows 管理的版本，切换 / 安装 / 卸载；macOS 与 Linux 上列出 nvm·fnm·volta·asdf 检测到的版本（不提供全机器切换）。同时给智能体一个 `node_version` 工具。 |
-| **前端项目管理** | 选择文件夹 → 从 `package.json` 的全部 `scripts` 里选一条 + 选包管理器（**都不预选**）→ 可选锁定 Node 版本、填端口与优先级 →「保存并启动」。端口就绪后给出局域网链接。每行只放两个按钮（启动/停止、编辑），输出、刷新、删除收进「更多」。**批量启动默认同时启动**，也可以切成「逐个启动，等上一条端口就绪」——依赖别的服务的项目用后者。就绪预算跟着栈走：前端 3 分钟、后端 5 分钟。 |
+| **前端项目管理** | 选择文件夹 → 从 `package.json` 的全部 `scripts` 里选一条 + 选包管理器（**都不预选**）→ 可选锁定 Node 版本、填端口 →「保存并启动」。端口就绪后给出局域网链接。每行只放两个按钮（启动/停止、编辑），输出、刷新、删除收进「更多」。**批量启动默认同时启动**，也可以切成「逐个启动，等上一条端口就绪」（按列表顺序）——依赖别的服务的项目用后者。就绪预算跟着栈走：前端 3 分钟、后端 5 分钟。 |
 | **后端项目管理** | Spring Boot：选 Maven / Gradle + Profile（从 `application-*.yaml` 读出），端口从 `server.port` 预填，就绪预算 5 分钟（前端 3 分钟）。Profile 通过 `SPRING_PROFILES_ACTIVE` 传给子进程；项目自带完整的 `mvnw` / `gradlew` 时优先用它，否则用全局 `mvn` / `gradle`。 |
 
 左侧「系统」里的每一项都是一个自带整块内容区的模块，加系统是加法，外壳不变。
@@ -46,7 +46,7 @@ dsh plugin --profile desktop add "git+https://github.com/slim4221/dsh-slim-workb
 
 条目保存在 `$DSH_HOME/slim-workbench/launchers.json`（Windows 为 `C:\Users\<你>\.dsh\slim-workbench\launchers.json`）。
 
-- 里面只有：项目**绝对路径**、你选的命令条件、端口、优先级、是否参与批量、警告快照 —— 没有项目源码、没有密钥
+- 里面只有：项目**绝对路径**、你选的命令条件、端口、是否参与批量、警告快照 —— 没有项目源码、没有密钥
 - **新机器装完插件列表是空的**，数据文件不随包分发；想带走就手动拷这一个 JSON
 - 卸载插件**不会**删除这个文件
 

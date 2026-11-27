@@ -4,7 +4,7 @@
  * The panel is plain `React.createElement` calls, so a small hook runtime is enough to
  * render it for real: every component runs, every branch that draws something draws it,
  * and a typo in a table row fails here instead of turning the panel blank in a browser.
- * No dependency, no DOM, no fetch — effects are skipped on purpose.
+ * No dependency, no DOM, no fetch 鈥?effects are skipped on purpose.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -210,7 +210,6 @@ test('an entry row draws its command, state, and actions', () => {
         customCommand: null,
         nodeVersion: '20.11.1',
         port: 5173,
-        priority: 2,
         batchEnabled: true,
         projectPath: 'D:\\work\\demo',
         command: 'pnpm run dev',
