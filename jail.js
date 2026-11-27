@@ -159,14 +159,14 @@ function encode(source) {
 export class JobKeeper {
   #child = null
   #buffer = ''
+  /** One resolver per operation in flight, oldest first. */
   #waiting = []
+  /** Non-null while the keeper is starting, so two callers share one start. */
   #starting = null
+  /** Set once the keeper could not start; nothing is retried after that. */
   #broken = false
-
-  /** @param {NodeJS.ProcessEnv} [env] the environment to start the keeper with. */
-  constructor(env = process.env) {
-    this.env = env
-  }
+  /** Called when the keeper announces itself, or null when no start is in flight. */
+  #ready = null
 
   /**
    * Whether a keeper is usable on this platform and has not failed yet.
@@ -184,25 +184,51 @@ export class JobKeeper {
     if (this.#broken) return false
     if (this.#child !== null && this.#child.exitCode === null) return true
     if (this.#starting !== null) return this.#starting
-    this.#starting = new Promise((resolve) => {
-      let settled = false
-      const finish = (ok) => {
-        if (settled) return
-        settled = true
-        if (!ok) this.#broken = true
-        resolve(ok)
-      }
+    this.#starting = this.#start()
+    try {
+      return await this.#starting
+    } finally {
+      this.#starting = null
+    }
+  }
+
+  /**
+   * Spawn the keeper and settle once it announces itself.
+   *
+   * Readiness comes from the keeper's own `{"op":"ready"}` line rather than from a timer:
+   * the first start compiles its C# helper, so how long that takes is its answer to give.
+   * @returns {Promise<boolean>} whether it started.
+   */
+  #start() {
+    return new Promise((resolve) => {
       const child = spawn(
         'powershell.exe',
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encode(KEEPER_SOURCE)],
-        { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: this.env },
+        { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
       )
       this.#child = child
-      const timer = setTimeout(() => finish(false), START_TIMEOUT)
-      child.once('error', () => { clearTimeout(timer); finish(false) })
+      let settled = false
+      let timer = null
+      const finish = (ok) => {
+        if (settled) return
+        settled = true
+        if (timer !== null) clearTimeout(timer)
+        this.#ready = null
+        if (!ok) this.#broken = true
+        resolve(ok)
+      }
+      timer = setTimeout(() => {
+        finish(false)
+        try {
+          child.kill()
+        } catch {
+          // Already gone.
+        }
+      }, START_TIMEOUT)
+      this.#ready = () => finish(true)
+      child.once('error', () => finish(false))
       child.once('exit', () => {
-        clearTimeout(timer)
-        // The keeper exiting means every job it held was closed, and its trees are gone.
+        // Closing its handles killed every tree it held; a later call may start a new one.
         this.#child = null
         this.#failAll()
         finish(false)
@@ -210,17 +236,8 @@ export class JobKeeper {
       child.stdout.setEncoding('utf8')
       child.stdout.on('data', (chunk) => this.#receive(chunk))
       child.stderr.resume()
-      const waitReady = () => {
-        if (this.#readySeen === true) { clearTimeout(timer); finish(true); return }
-        setTimeout(waitReady, 20)
-      }
-      waitReady()
-    }).finally(() => { this.#starting = null })
-    return this.#starting
+    })
   }
-
-  /** Whether the keeper announced itself. */
-  #readySeen = false
 
   /**
    * Read one line of keeper output.
@@ -251,7 +268,7 @@ export class JobKeeper {
       return
     }
     if (reply.op === 'ready') {
-      this.#readySeen = true
+      if (this.#ready !== null) this.#ready()
       return
     }
     const pending = this.#waiting.shift()
@@ -263,7 +280,6 @@ export class JobKeeper {
    * @returns {void}
    */
   #failAll() {
-    this.#readySeen = false
     while (this.#waiting.length > 0) {
       const pending = this.#waiting.shift()
       pending(false)
@@ -276,20 +292,20 @@ export class JobKeeper {
    * @returns {Promise<boolean>} whether it succeeded.
    */
   #send(message) {
+    const child = this.#child
+    if (child === null || child.stdin === null || child.exitCode !== null) return Promise.resolve(false)
     return new Promise((resolve) => {
-      const child = this.#child
-      if (child === null || child.stdin === null || child.exitCode !== null) {
-        resolve(false)
-        return
+      let timer = null
+      const done = (value) => {
+        if (timer !== null) clearTimeout(timer)
+        resolve(value)
       }
-      this.#waiting.push(resolve)
-      const timer = setTimeout(() => {
-        const index = this.#waiting.indexOf(resolve)
-        if (index >= 0) this.#waiting.splice(index, 1)
+      timer = setTimeout(() => {
+        const at = this.#waiting.indexOf(done)
+        if (at >= 0) this.#waiting.splice(at, 1)
         resolve(false)
       }, OP_TIMEOUT)
-      const done = (value) => { clearTimeout(timer); resolve(value) }
-      this.#waiting[this.#waiting.length - 1] = done
+      this.#waiting.push(done)
       child.stdin.write(`${JSON.stringify(message)}\n`)
     })
   }
@@ -314,14 +330,6 @@ export class JobKeeper {
     if (!this.usable || !Number.isInteger(pid)) return false
     if (this.#child === null) return false
     return this.#send({ op: 'release', pid })
-  }
-
-  /**
-   * Whether the keeper process is running.
-   * @returns {boolean} true when it is.
-   */
-  get running() {
-    return this.#child !== null && this.#child.exitCode === null
   }
 
   /**

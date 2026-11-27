@@ -724,25 +724,40 @@ async function terminate(run) {
     }
     return
   }
-  const signal = (name) => {
-    try {
-      process.kill(-pid, name)
-    } catch {
-      try {
-        child?.kill(name)
-      } catch {
-        // No child handle (an adopted run) and no process group: signal the pid itself.
-        try {
-          process.kill(pid, name)
-        } catch {
-          // Already gone.
-        }
-      }
-    }
-  }
-  signal('SIGTERM')
-  const escalation = setTimeout(() => { signal('SIGKILL') }, 4000)
+  signalTree(pid, child, 'SIGTERM')
+  const escalation = setTimeout(() => { signalTree(pid, child, 'SIGKILL') }, 4000)
   if (typeof escalation.unref === 'function') escalation.unref()
+}
+
+/**
+ * Signal a run's process group, falling back to its pid.
+ *
+ * A child we spawned leads its own group, so the group signal reaches everything it
+ * started. An adopted run has no handle and may not lead a group, in which case the pid
+ * itself is what is left to signal.
+ * @param {number} pid the run's pid.
+ * @param {import('node:child_process').ChildProcess | null} child the handle, when we have one.
+ * @param {NodeJS.Signals} signal the signal to send.
+ * @returns {void}
+ */
+function signalTree(pid, child, signal) {
+  try {
+    process.kill(-pid, signal)
+    return
+  } catch {
+    // Not a group leader: try the handle, then the pid on its own.
+  }
+  try {
+    child?.kill(signal)
+    if (child !== null) return
+  } catch {
+    // No usable handle.
+  }
+  try {
+    process.kill(pid, signal)
+  } catch {
+    // Already gone.
+  }
 }
 
 /**
@@ -1206,12 +1221,9 @@ export function rememberNodeCache(state) {
     const previous = document.nodeCache
     // Only the substance decides whether to write: the read time changes on every read, and
     // rewriting the user's file every time the panel opens is churn nobody asked for.
-    const substance = (value) => {
-      if (value === null || typeof value !== 'object') return null
-      const { readAt, ...rest } = value
-      void readAt
-      return JSON.stringify(rest)
-    }
+    const substance = (value) => (value === null || typeof value !== 'object'
+      ? null
+      : JSON.stringify({ ...value, readAt: undefined }))
     if (previous !== null && substance(previous) === substance(state)) return
     writeDocument({ ...document, nodeCache: state })
   })
@@ -1341,10 +1353,9 @@ async function processCommandLine(pid) {
  * forget them: they kept holding their ports and could not be stopped from the UI. Each
  * stored record is checked twice — is the pid alive, and is the command line still the one
  * we recorded — before it is adopted, because a pid on its own proves nothing.
- * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<{ adopted: number, dropped: number }>} what the reconcile found.
  */
-export async function adoptRuns(context) {
+export async function adoptRuns() {
   const records = readDocument().runs
   if (records.length === 0) return { adopted: 0, dropped: 0 }
   const entries = readEntries()
@@ -1397,7 +1408,6 @@ export async function adoptRuns(context) {
       writeDocument({ ...document, runs: kept })
     })
   }
-  void context
   return { adopted, dropped }
 }
 

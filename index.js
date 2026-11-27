@@ -419,16 +419,13 @@ export function apply(ctx, config) {
   // Stamping entries written before snapshots existed is a write, so it happens once
   // here rather than inside the GET that reads the list.
   ctx.effect(() => {
-    const migration = migrateEntries(launcher()).catch(() => 0)
-    void migration
+    void migrateEntries(launcher()).catch(() => 0)
     // Runs from before this host started: a crash leaves processes with no pipes attached.
     // Adoption gives the panel a row it can stop instead of a dead port it cannot explain.
-    const adoption = adoptRuns(launcher()).catch(() => ({ adopted: 0, dropped: 0 }))
-    void adoption.then((result) => {
-      if (result.adopted > 0) {
-        void ctx.logger?.info?.(`slim-workbench: adopted ${result.adopted} run(s) from before this host started`)
-      }
-    })
+    void adoptRuns().then((result) => {
+      if (result.adopted === 0) return
+      void ctx.logger?.info?.(`slim-workbench: adopted ${result.adopted} run(s) from before this host started`)
+    }, () => undefined)
   }, 'slim-workbench: snapshot migration and run adoption')
   // A dev server the user started must not outlive the plugin that reports it. Closing the
   // keeper is the last line: its jobs die with it even if a stop never got the chance.

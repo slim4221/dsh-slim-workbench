@@ -113,7 +113,7 @@ test('an adopted run is still running, and one stop kills it', { timeout: 40000 
     command: `node -e sleep`,
   }])
 
-  const found = await adoptRuns(context)
+  const found = await adoptRuns()
   assert.deepEqual(found, { adopted: 1, dropped: 0 })
   const state = await readLauncherState(context)
   assert.equal(state.entries[0].status, 'running', 'the panel shows it running')
@@ -153,7 +153,7 @@ test('a record whose process is gone, or is a different program, is dropped', { 
     { id, name: 'stale-web', pid: 999999, startedAt: Date.now(), port: null, command: 'node -e sleep' },
     { id, name: 'stale-web', pid: other.pid, startedAt: Date.now(), port: null, command: 'python -m http.server' },
   ])
-  const found = await adoptRuns(context)
+  const found = await adoptRuns()
   assert.deepEqual(found, { adopted: 0, dropped: 2 })
   assert.ok(alive(other.pid), 'the unrelated process was left alone')
   const state = await readLauncherState(context)

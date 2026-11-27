@@ -80,7 +80,6 @@ function page() {
 /* ---- a React small enough to render the panel into real DOM ---- */
 (function () {
   const hooks = new Map();
-  let renderQueued = false;
   let rootNode = null;
   let rootRender = null;
 
