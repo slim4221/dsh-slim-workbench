@@ -232,6 +232,8 @@ test('an entry row draws its command, state, and actions', () => {
   assert.ok(text.includes('demo-web'))
   assert.ok(text.includes('pnpm run dev'))
   assert.ok(text.includes('192.168.1.10:5173'))
+  // The stored priority is shown, even though nothing orders by it.
+  assert.ok(text.some((line) => line.includes(dictionaries.en.launchPriorityChip.replace('{count}', '2'))))
   // The actions a row offers, including the output view this version added.
   const actions = elementsWithClass(tree, 'lch-actions')
   assert.equal(actions.length, 1)
@@ -241,6 +243,43 @@ test('an entry row draws its command, state, and actions', () => {
   assert.equal(textsOf(buttons[0]).join(''), dictionaries.en.launchStop)
   assert.equal(textsOf(buttons[1]).join(''), dictionaries.en.launchEdit)
   assert.ok(textsOf(buttons[2]).join('').startsWith(dictionaries.en.actionsMore))
+})
+
+test('the editor keeps the priority control', () => {
+  const launcher = seen.get('LauncherSystem')
+  const state = stateOf(stores, launcher)
+  const entry = state[HOOK.data].payload.entries[0]
+  // A form carrying the stored priority: the control is editable, it just has no consumer.
+  state[1] = {
+    id: entry.id,
+    name: entry.name,
+    projectPath: entry.projectPath,
+    kind: 'script',
+    pm: 'pnpm',
+    script: 'dev',
+    customCommand: '',
+    nodeVersion: '20.11.1',
+    port: '5173',
+    priority: 2,
+    batchEnabled: true,
+    builder: null,
+    profile: null,
+  }
+  const tree = renderPanel()
+  const text = textsOf(tree)
+  assert.ok(text.includes(dictionaries.en.launchPriorityLabel))
+  assert.ok(text.includes(dictionaries.en.launchPriorityHint), 'the hint says nothing consumes it yet')
+  // The control is an input holding the stored value.
+  const inputs = []
+  const walk = (node) => {
+    if (Array.isArray(node)) { node.forEach(walk); return }
+    if (node === null || node === undefined || typeof node !== 'object') return
+    if (node.type === 'input' && node.props.value === '2') inputs.push(node)
+    node.children.forEach(walk)
+  }
+  walk(tree)
+  assert.ok(inputs.length > 0, 'the priority input holds the stored value')
+  state[1] = null
 })
 
 test('the More menu holds the actions the row no longer shows', () => {

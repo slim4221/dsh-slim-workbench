@@ -172,6 +172,24 @@ test('a saved entry comes back with its command and snapshot', async () => {
   assert.equal(edited.payload.state.entries[0].name, 'demo-web-renamed')
   assert.equal(edited.payload.state.entries[0].priority, 2, 'an omitted priority keeps what the entry stores')
 
+  // 0 is a real value, not a falsy one to be replaced by the default.
+  const zeroed = await call('/slim-workbench/launch/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      id: entry.id,
+      name: 'demo-web-renamed',
+      projectPath: project,
+      stack: 'frontend',
+      kind: 'script',
+      pm: 'pnpm',
+      script: 'dev',
+      port: 5173,
+      priority: 0,
+    }),
+  })
+  assert.equal(zeroed.payload.state.entries[0].priority, 0)
+
   // The refusals a user can actually hit.
   const noName = await call('/slim-workbench/launch/save', {
     method: 'POST',

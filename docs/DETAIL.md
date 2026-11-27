@@ -59,11 +59,11 @@ is `$DSH_HOME/slim-workbench/launchers.json`.
 
 ## Data and moving machines
 
-An entry stores the absolute project path, the command conditions you chose, a port,
+An entry stores the absolute project path, the command conditions you chose, a port, a priority,
 whether it takes part in a batch start, and a small inspection snapshot (branch, port, warnings).
-It also keeps a `priority` field that nothing reads at the moment: there is no control for it, and
-the start order is the list order. The value is preserved on every save so it is still there when an
-ordering rule wants it again.
+The priority is editable and saved like any other field, but **nothing consumes it yet**: the start
+order is the list order, and the field's own hint says so. When an ordering rule arrives, the values
+are already there.
 Nothing else — no sources, no secrets, no environment.
 
 Because the data file lives outside the package, **a fresh install starts with empty lists**. Copying

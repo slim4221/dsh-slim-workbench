@@ -163,6 +163,9 @@ window.__ModuleLoader__.load({
       launchNodeFollowValue: 'Follow the workbench ({version})',
       launchPortLabel: 'Port (optional)',
       launchPortPlaceholder: '5173',
+      launchPriorityLabel: 'Priority',
+      launchPriorityHint: 'Smaller is earlier. Stored for now, but nothing uses it yet: the start order is the list order.',
+      launchPriorityChip: 'priority {count}',
       launchPick: 'Choose folder',
       launchDetected: 'Detected {what} — a hint only',
       launchNoLockfile: 'No lockfile found: pick the package manager yourself',
@@ -337,6 +340,9 @@ window.__ModuleLoader__.load({
       launchNodeFollowValue: '跟随工作台（{version}）',
       launchPortLabel: '端口（可选）',
       launchPortPlaceholder: '5173',
+      launchPriorityLabel: '优先级',
+      launchPriorityHint: '数字越小越靠前。目前只记录、暂时不参与启动顺序（顺序就是列表顺序）。',
+      launchPriorityChip: '优先 {count}',
       launchPick: '选择文件夹',
       launchDetected: '检测到 {what} —— 仅提示',
       launchNoLockfile: '没找到锁文件：包管理器请自行确认',
@@ -544,6 +550,7 @@ window.__ModuleLoader__.load({
 .lch-cell-mono { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; color: var(--dsw-alias-label-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .lch-cell-dim { font-size: 12px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-variant-numeric: tabular-nums; }
 .lch-dim { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
+.lch-changes { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
 .lch-links { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .lch-state { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-variant-numeric: tabular-nums; }
 .lch-state[data-state="running"] { color: var(--dsw-alias-state-success-primary); }
@@ -1296,6 +1303,7 @@ window.__ModuleLoader__.load({
         customCommand: '',
         nodeVersion: null,
         port: '',
+        priority: 1,
         batchEnabled: true,
         builder: null,
         profile: null,
@@ -1316,6 +1324,7 @@ window.__ModuleLoader__.load({
         customCommand: entry.customCommand ?? '',
         nodeVersion: entry.nodeVersion ?? null,
         port: entry.port === null || entry.port === undefined ? '' : String(entry.port),
+        priority: entry.priority ?? 1,
         batchEnabled: entry.batchEnabled !== false,
         builder: entry.builder ?? null,
         profile: entry.profile ?? null,
@@ -1567,6 +1576,8 @@ window.__ModuleLoader__.load({
               customCommand: form.kind === 'custom' ? form.customCommand : null,
               nodeVersion: form.nodeVersion,
               port: form.port === '' ? null : Number(form.port),
+              // Stored and echoed back so the value round-trips; nothing consumes it yet.
+              priority: Number(form.priority) || 0,
               batchEnabled: form.batchEnabled !== false,
             }),
           })
@@ -1896,16 +1907,35 @@ window.__ModuleLoader__.load({
             ? (nodeVersions.length === 0 ? h('p', { className: 'lch-hint' }, t('launchNoNodeVersions')) : null)
             : h('p', { className: 'lch-hint', 'data-kind': 'error' }, t('launchNoNvm')),
           ),
-          h('label', { className: 'lch-field' },
-            h('span', null, t('launchPortLabel')),
-            h('input', {
-              className: 'lch-input',
-              value: form.port,
-              placeholder: t('launchPortPlaceholder'),
-              inputMode: 'numeric',
-              onChange: (event) => { setForm({ ...form, port: event.target.value.replace(/[^\d]/g, '') }) },
-            }),
+          h('div', { className: 'lch-grid2' },
+            h('label', { className: 'lch-field' },
+              h('span', null, t('launchPortLabel')),
+              h('input', {
+                className: 'lch-input',
+                value: form.port,
+                placeholder: t('launchPortPlaceholder'),
+                inputMode: 'numeric',
+                onChange: (event) => { setForm({ ...form, port: event.target.value.replace(/[^\d]/g, '') }) },
+              }),
+            ),
+            h('label', { className: 'lch-field' },
+              h('span', null, t('launchPriorityLabel')),
+              h('input', {
+                className: 'lch-input',
+                value: String(form.priority),
+                inputMode: 'numeric',
+                min: 0,
+                max: 99,
+                title: t('launchPriorityHint'),
+                onChange: (event) => {
+                  const digits = event.target.value.replace(/[^\d]/g, '')
+                  const parsed = Number.parseInt(digits === '' ? '1' : digits, 10)
+                  setForm({ ...form, priority: Math.min(99, Math.max(0, Number.isFinite(parsed) ? parsed : 1)) })
+                },
+              }),
+            ),
           ),
+          h('p', { className: 'lch-hint' }, t('launchPriorityHint')),
           h('label', { className: 'lch-check' },
             h('input', {
               type: 'checkbox',
@@ -1975,7 +2005,12 @@ window.__ModuleLoader__.load({
           h('tr', { className: 'lch-trow', 'data-state': entry.status },
             h('td', null,
               h('div', { className: 'lch-cell-project' },
-                h('span', { className: 'lch-cell-name', title: entry.name }, entry.name),
+                h('span', { className: 'lch-cell-name', title: entry.name },
+                  entry.name,
+                  typeof entry.priority !== 'number' || entry.priority === 1
+                    ? null
+                    : h('span', { className: 'lch-changes' }, ` · ${fill(t('launchPriorityChip'), { count: String(entry.priority) })}`),
+                ),
                 h('span', { className: 'lch-cell-cwd', title: entry.projectPath }, entry.projectPath),
               ),
             ),
@@ -2076,9 +2111,9 @@ window.__ModuleLoader__.load({
       /**
        * Entries in start order: creation order.
        *
-       * `priority` is stored per entry but currently unused — nothing here reads it, so the
-       * order is simply what was added first. The field stays in the data file so a later
-       * ordering rule can use the values that are already there.
+       * `priority` is stored, editable, and shown on the row, but nothing consumes it yet:
+       * the order is simply what was added first. When it does get a rule, the values are
+       * already there.
        * @returns {Array<object>} the ordered entries.
        */
       function orderedEntries() {
@@ -2415,6 +2450,9 @@ window.__ModuleLoader__.load({
                     onChange: (event) => { setEntryBatch(entry, event.target.checked).catch(() => {}) },
                   }),
                   h('span', { className: 'lch-batch-name' }, entry.name),
+                  typeof entry.priority === 'number' && entry.priority !== 1
+                    ? h('span', { className: 'lch-changes' }, fill(t('launchPriorityChip'), { count: String(entry.priority) }))
+                    : null,
                 ),
                 h('span', { className: 'lch-batch-state', 'data-kind': state.kind }, state.text),
               )

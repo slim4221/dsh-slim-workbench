@@ -1092,8 +1092,9 @@ async function validateEntry(input, context) {
       customCommand: kind === 'custom' ? customCommand : null,
       nodeVersion,
       port: normalizePort(source.port),
-      // The panel offers no priority control at the moment, so omission must mean "leave
-      // what is stored alone": a value the user set earlier must not be reset by an edit.
+      // The panel sends this back on every save, so it round-trips; a request that omits it
+      // (a hand-made POST, an older client) must still mean "keep what is stored", because
+      // silently resetting a value the user set would be a data loss nobody asked for.
       priority: source.priority === undefined ? undefined : normalizePriority(source.priority),
       batchEnabled: source.batchEnabled !== false,
     },

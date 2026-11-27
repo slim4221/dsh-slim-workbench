@@ -47,7 +47,7 @@ dsh plugin --profile desktop add "git+https://github.com/slim4221/dsh-slim-workb
 条目保存在 `$DSH_HOME/slim-workbench/launchers.json`（Windows 为 `C:\Users\<你>\.dsh\slim-workbench\launchers.json`）。
 
 - 里面只有：项目**绝对路径**、你选的命令条件、端口、是否参与批量、警告快照 —— 没有项目源码、没有密钥
-- 条目里还留着 `priority` 字段，但**目前不用**：界面没有这一项，排序也不用它（逐个启动按列表顺序）。字段保留是为了不改动已有数据，以后要接排序规则可以直接用
+- 条目里的 `priority` **能填也能存**（新增/编辑弹窗里就是那个「优先级」，行内也会显示），但**目前没有消费方**：启动顺序不看它（逐个启动按列表顺序，同时启动没有顺序）。以后要接排序规则，已有的值直接可用
 - **新机器装完插件列表是空的**，数据文件不随包分发；想带走就手动拷这一个 JSON
 - 卸载插件**不会**删除这个文件
 
