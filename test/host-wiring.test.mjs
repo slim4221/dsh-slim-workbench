@@ -2,7 +2,8 @@
  * Wiring tests for the Host half.
  *
  * `apply()` is the only place that can silently stop working: a route path typo, a tool
- * that never registers, or a gate that stops refusing. None of that throws at load time 鈥? * the panel just loses a button. This mounts the real plugin on a stub context and drives
+ * that never registers, or a gate that stops refusing. None of that throws at load time —
+ * the panel just loses a button. This mounts the real plugin on a stub context and drives
  * the routes over fake requests, with `DSH_HOME` pointed at a scratch directory.
  */
 import test from 'node:test'
@@ -19,7 +20,7 @@ const tools = new Map()
 const routes = new Map()
 const disposers = []
 
-/** The stub the Host context hands to `ctx.inject(['webServer'], 鈥?`. */
+/** The stub the Host context hands to `ctx.inject(['webServer'], …)`. */
 const host = {
   effect: (run) => {
     const disposer = run()
@@ -140,6 +141,7 @@ test('a saved entry comes back with its command and snapshot', async () => {
       pm: 'pnpm',
       script: 'dev',
       port: 5173,
+      priority: 2,
     }),
   })
   assert.equal(saved.payload.ok, true)

@@ -42,9 +42,8 @@ test('normalizeEntry migrates the version-1 command shape', () => {
   assert.equal(entry.projectPath, 'D:\\proj')
   assert.equal(entry.kind, 'custom')
   assert.equal(entry.customCommand, 'npm run dev')
+  assert.equal(entry.priority, 1)
   assert.equal(entry.batchEnabled, true)
-  // A priority written by an older version is dropped: batch start has no order to honour.
-  assert.equal('priority' in internals.normalizeEntry({ name: 'p', projectPath: 'D:\\p', kind: 'custom', customCommand: 'x', priority: 0 }, 0), false)
 })
 
 test('normalizeEntry drops what it cannot represent', () => {
@@ -75,6 +74,15 @@ test('normalizePort accepts 1-65535 and rejects everything else', () => {
   assert.equal(internals.normalizePort(8080.5), null)
   assert.equal(internals.normalizePort('abc'), null)
   assert.equal(internals.normalizePort(null), null)
+})
+
+test('normalizePriority defaults to 1 and clamps to 0-99', () => {
+  assert.equal(internals.normalizePriority(undefined), 1)
+  assert.equal(internals.normalizePriority(''), 1)
+  assert.equal(internals.normalizePriority('x'), 1)
+  assert.equal(internals.normalizePriority(-5), 0)
+  assert.equal(internals.normalizePriority(1000), 99)
+  assert.equal(internals.normalizePriority('3'), 3)
 })
 
 test('normalizeVersion accepts a bare or v-prefixed triple only', () => {
@@ -230,12 +238,14 @@ test('validateEntry keeps a real choice intact', async (t) => {
     pm: 'pnpm',
     script: 'dev',
     port: '5173',
+    priority: '2',
     nodeVersion: 'v20.11.1',
   }, context)
   assert.equal(result.ok, true)
   assert.equal(result.value.pm, 'pnpm')
   assert.equal(result.value.script, 'dev')
   assert.equal(result.value.port, 5173)
+  assert.equal(result.value.priority, 2)
   assert.equal(result.value.nodeVersion, '20.11.1')
   assert.equal(result.value.batchEnabled, true)
 })

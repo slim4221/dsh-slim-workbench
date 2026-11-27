@@ -163,6 +163,9 @@ window.__ModuleLoader__.load({
       launchNodeFollowValue: 'Follow the workbench ({version})',
       launchPortLabel: 'Port (optional)',
       launchPortPlaceholder: '5173',
+      launchPriorityLabel: 'Priority',
+      launchPriorityHint: 'Smaller starts earlier; 0 is the most urgent, 1 is the default',
+      launchPriorityChip: 'priority {count}',
       launchPick: 'Choose folder',
       launchDetected: 'Detected {what} — a hint only',
       launchNoLockfile: 'No lockfile found: pick the package manager yourself',
@@ -217,7 +220,7 @@ window.__ModuleLoader__.load({
       batchModeParallel: 'All at once',
       batchModeSerial: 'One after another',
       batchParallelHint: 'Every selected entry starts now, and each is watched until its own port answers. A project that depends on another may log connection errors until that one is listening.',
-      batchSerialHint: 'Each entry starts only after the previous one answers on its port, in list order — for projects that must come up in order, such as an SSO service.',
+      batchSerialHint: 'Each entry starts only after the previous one answers on its port, in priority order — for projects that must come up in order, such as an SSO service (give it priority 0).',
       batchFailedSome: 'Some entries did not answer on their port; the rest keep running.',
       batchStart: 'Start',
       batchStarting: 'Starting…',
@@ -337,6 +340,9 @@ window.__ModuleLoader__.load({
       launchNodeFollowValue: '跟随工作台（{version}）',
       launchPortLabel: '端口（可选）',
       launchPortPlaceholder: '5173',
+      launchPriorityLabel: '优先级',
+      launchPriorityHint: '数字越小越早，0 最急；默认 1',
+      launchPriorityChip: '优先 {count}',
       launchPick: '选择文件夹',
       launchDetected: '检测到 {what} —— 仅提示',
       launchNoLockfile: '没找到锁文件：包管理器请自行确认',
@@ -391,7 +397,7 @@ window.__ModuleLoader__.load({
       batchModeParallel: '同时启动',
       batchModeSerial: '逐个启动',
       batchParallelHint: '选中的条目立刻全部启动，各自等自己的端口应答；有依赖的项目可能在前者就绪前报连接错误。',
-      batchSerialHint: '上一条端口就绪后才启动下一条，按列表顺序（创建先后）—— 需要按顺序起的项目（例如 SSO）用这个。',
+      batchSerialHint: '上一条端口就绪后才启动下一条，按优先级从小到大 —— 需要按顺序起的项目（例如 SSO）把它的优先级设成 0。',
       batchFailedSome: '有启动项端口未就绪；已经起来的继续运行。',
       batchStart: '开始启动',
       batchStarting: '启动中…',
@@ -544,6 +550,7 @@ window.__ModuleLoader__.load({
 .lch-cell-mono { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; color: var(--dsw-alias-label-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .lch-cell-dim { font-size: 12px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-variant-numeric: tabular-nums; }
 .lch-dim { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
+.lch-changes { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
 .lch-links { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .lch-state { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-variant-numeric: tabular-nums; }
 .lch-state[data-state="running"] { color: var(--dsw-alias-state-success-primary); }
@@ -1296,6 +1303,7 @@ window.__ModuleLoader__.load({
         customCommand: '',
         nodeVersion: null,
         port: '',
+        priority: 1,
         batchEnabled: true,
         builder: null,
         profile: null,
@@ -1316,6 +1324,7 @@ window.__ModuleLoader__.load({
         customCommand: entry.customCommand ?? '',
         nodeVersion: entry.nodeVersion ?? null,
         port: entry.port === null || entry.port === undefined ? '' : String(entry.port),
+        priority: entry.priority ?? 0,
         batchEnabled: entry.batchEnabled !== false,
         builder: entry.builder ?? null,
         profile: entry.profile ?? null,
@@ -1567,6 +1576,7 @@ window.__ModuleLoader__.load({
               customCommand: form.kind === 'custom' ? form.customCommand : null,
               nodeVersion: form.nodeVersion,
               port: form.port === '' ? null : Number(form.port),
+              priority: Number(form.priority) || 0,
               batchEnabled: form.batchEnabled !== false,
             }),
           })
@@ -1896,16 +1906,35 @@ window.__ModuleLoader__.load({
             ? (nodeVersions.length === 0 ? h('p', { className: 'lch-hint' }, t('launchNoNodeVersions')) : null)
             : h('p', { className: 'lch-hint', 'data-kind': 'error' }, t('launchNoNvm')),
           ),
-          h('label', { className: 'lch-field' },
-            h('span', null, t('launchPortLabel')),
-            h('input', {
-              className: 'lch-input',
-              value: form.port,
-              placeholder: t('launchPortPlaceholder'),
-              inputMode: 'numeric',
-              onChange: (event) => { setForm({ ...form, port: event.target.value.replace(/[^\d]/g, '') }) },
-            }),
+          h('div', { className: 'lch-grid2' },
+            h('label', { className: 'lch-field' },
+              h('span', null, t('launchPortLabel')),
+              h('input', {
+                className: 'lch-input',
+                value: form.port,
+                placeholder: t('launchPortPlaceholder'),
+                inputMode: 'numeric',
+                onChange: (event) => { setForm({ ...form, port: event.target.value.replace(/[^\d]/g, '') }) },
+              }),
+            ),
+            h('label', { className: 'lch-field' },
+              h('span', null, t('launchPriorityLabel')),
+              h('input', {
+                className: 'lch-input',
+                value: String(form.priority),
+                inputMode: 'numeric',
+                min: 0,
+                max: 99,
+                title: t('launchPriorityHint'),
+                onChange: (event) => {
+                  const digits = event.target.value.replace(/[^\d]/g, '')
+                  const parsed = Number.parseInt(digits === '' ? '1' : digits, 10)
+                  setForm({ ...form, priority: Math.min(99, Math.max(0, Number.isFinite(parsed) ? parsed : 1)) })
+                },
+              }),
+            ),
           ),
+          h('p', { className: 'lch-hint' }, t('launchPriorityHint')),
           h('label', { className: 'lch-check' },
             h('input', {
               type: 'checkbox',
@@ -1975,7 +2004,12 @@ window.__ModuleLoader__.load({
           h('tr', { className: 'lch-trow', 'data-state': entry.status },
             h('td', null,
               h('div', { className: 'lch-cell-project' },
-                h('span', { className: 'lch-cell-name', title: entry.name }, entry.name),
+                h('span', { className: 'lch-cell-name', title: entry.name },
+                  entry.name,
+                  typeof entry.priority !== 'number' || entry.priority === 1
+                    ? null
+                    : h('span', { className: 'lch-changes' }, ` · ${fill(t('launchPriorityChip'), { count: String(entry.priority) })}`),
+                ),
                 h('span', { className: 'lch-cell-cwd', title: entry.projectPath }, entry.projectPath),
               ),
             ),
@@ -2074,14 +2108,13 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Entries in start order: creation order.
-       *
-       * There is no priority: starting everything at once has no order to honour, and the
-       * serial mode's order is the one the list shows — what was added first goes first.
+       * Entries in start order: priority ascending, then creation order.
        * @returns {Array<object>} the ordered entries.
        */
       function orderedEntries() {
-        return [...entries].sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0))
+        const priorityOf = (value) => (typeof value === 'number' ? value : 1)
+        return [...entries].sort((left, right) => (priorityOf(left.priority) - priorityOf(right.priority))
+          || ((left.createdAt ?? 0) - (right.createdAt ?? 0)))
       }
 
       /**
@@ -2211,7 +2244,7 @@ window.__ModuleLoader__.load({
        * waiting for a port that will answer in 40 seconds to start the next one only
        * makes the batch as slow as the sum of its parts. A dependency that needs the
        * other service already listening belongs to the serial mode.
-       * @param {Array<object>} queue the entries, in list order.
+       * @param {Array<object>} queue the entries, in priority order.
        * @param {object} results per-entry outcomes, mutated in place.
        * @param {(phase: string, index: number) => void} publish push the dialog's state.
        * @returns {Promise<void>} settles when every port answered, failed, or ran out of time.
@@ -2262,7 +2295,7 @@ window.__ModuleLoader__.load({
 
       /**
        * Start the picked entries one at a time, each after the previous one is up.
-       * @param {Array<object>} queue the entries, in list order.
+       * @param {Array<object>} queue the entries, in priority order.
        * @param {object} results per-entry outcomes, mutated in place.
        * @param {(phase: string, index: number) => void} publish push the dialog's state.
        * @returns {Promise<void>} settles when the run stops, finishes, or fails.
@@ -2414,6 +2447,9 @@ window.__ModuleLoader__.load({
                     onChange: (event) => { setEntryBatch(entry, event.target.checked).catch(() => {}) },
                   }),
                   h('span', { className: 'lch-batch-name' }, entry.name),
+                  typeof entry.priority === 'number' && entry.priority !== 1
+                    ? h('span', { className: 'lch-changes' }, fill(t('launchPriorityChip'), { count: String(entry.priority) }))
+                    : null,
                 ),
                 h('span', { className: 'lch-batch-state', 'data-kind': state.kind }, state.text),
               )

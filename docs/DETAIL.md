@@ -19,15 +19,17 @@ model can look a version up or switch it for you.
 **Frontend projects** does not guess at a command. You pick the folder with the host's native folder
 dialog; it reads that folder once and offers every `scripts` entry it found. You then choose the
 package manager and the script — neither is preselected, and a lockfile is shown beside the control as
-a hint, never applied on your behalf. Optional: pin a Node version for this entry only, and a port.
-Start runs the command in that folder; the row reports *starting*, then *ready* when the
+a hint, never applied on your behalf. Optional: pin a Node version for this entry only, a port, and a
+priority. Start runs the command in that folder; the row reports *starting*, then *ready* when the
 port answers, and then shows the LAN address (the local address is implied by the machine you are
 on). A row shows two actions — start/stop and edit — and keeps output, refresh, and delete under
 **More**. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
 refreshed while the dialog is open. **Batch start** starts the selected entries at the same time by
-default; a second mode starts them one by one, each after the previous one answers on its port, for
-projects that must come up in order (an SSO service, for example). Its readiness budget follows the
-stack: three minutes for a dev server, five for a backend.
+default; a second mode starts them one by one, each after the previous one answers on its port, in
+priority order — for projects that must come up in order (an SSO service: give it priority 0). With
+everything starting at once there is no order to honour, so priority only decides the serial mode and
+the order of that dialog's list. Its readiness budget follows the stack: three minutes for a dev
+server, five for a backend.
 
 **Backend projects** covers Spring Boot: choose Maven or Gradle, choose a Spring profile from the
 `application-*.yaml` files the project ships, and the port is read from `server.port`. The profile
@@ -59,7 +61,7 @@ is `$DSH_HOME/slim-workbench/launchers.json`.
 
 ## Data and moving machines
 
-An entry stores the absolute project path, the command conditions you chose, a port,
+An entry stores the absolute project path, the command conditions you chose, a port, a priority,
 whether it takes part in a batch start, and a small inspection snapshot (branch, port, warnings).
 Nothing else — no sources, no secrets, no environment.
 
@@ -72,10 +74,6 @@ Reading a project happens when an entry is saved, when its editor opens (the dia
 script list and the profiles, and shows a loading row until the read lands), or from **More →
 refresh**. It never happens while the panel is open: opening the panel reads one JSON file, which is
 why it opens without a pause and without spawning `git`.
-
-An entry has **no priority**. Starting everything at once has no order to honour, and the serial
-mode's order is the list order — whatever was added first starts first, so a service the rest depend
-on simply belongs at the top of the list.
 
 ## Limits worth knowing
 
