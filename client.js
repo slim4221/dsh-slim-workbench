@@ -1589,6 +1589,9 @@ window.__ModuleLoader__.load({
       const nodeVersions = Array.isArray(data.payload?.nodeVersions) ? data.payload.nodeVersions : []
       const nvmInfo = data.payload?.nvm ?? null
       const busy = pending !== null
+      // Anything that opens a dialog built from this list waits while the list is being
+      // re-read: 批量启动 needs the entries, 添加 opens a form prefilled from the snapshot.
+      const locked = busy || refreshAll
 
       /**
        * Describe one run's state for the row and the log header.
@@ -2717,6 +2720,7 @@ window.__ModuleLoader__.load({
             h('button', {
               type: 'button',
               className: 'ndv-button lch-primary',
+              disabled: locked,
               onClick: () => { setForm(emptyForm(data.payload)) },
             }, t('launchAdd')),
           ))
@@ -2757,24 +2761,27 @@ window.__ModuleLoader__.load({
                 ? h('button', {
                   type: 'button',
                   className: 'ndv-button',
-                  disabled: busy || entries.length === 0,
+                  disabled: locked || entries.length === 0,
                   onClick: () => { openBatch() },
                 }, t('launchBatch'))
                 : null,
               h('button', {
                 type: 'button',
                 className: 'ndv-button lch-refresh-all',
-                title: t('refreshAllHint'),
+                // The hint explains what a refresh does; while one runs it says what is
+                // being re-read, which is the more useful of the two at that moment.
+                title: refreshAll ? t('refreshAllBusy') : t('refreshAllHint'),
                 disabled: refreshAll || busy || data.status !== 'ready',
                 'aria-busy': refreshAll ? 'true' : undefined,
                 onClick: () => { refreshEverything().catch(() => {}) },
               },
                 refreshAll ? h('span', { key: 'spin', className: 'ndv-spin', 'aria-hidden': 'true' }) : null,
-                h('span', { key: 'label' }, refreshAll ? t('refreshAllBusy') : t('refresh'))),
+                h('span', { key: 'label' }, refreshAll ? t('refreshing') : t('refresh'))),
               form === null
                 ? h('button', {
                   type: 'button',
                   className: 'ndv-button lch-primary',
+                  disabled: locked,
                   onClick: () => { setForm(emptyForm(data.payload)) },
                 }, t('launchAdd'))
                 : null,

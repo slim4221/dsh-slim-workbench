@@ -392,6 +392,29 @@ function nodeState(readAt = Date.parse('2026-11-27T09:18:09Z')) {
   }
 }
 
+test('a refresh locks the buttons that read the list', () => {
+  elementsWithClass(renderPanel(), 'wbm-nav-item')[1].props.onClick()
+  renderPanel()
+  const launcher = seen.get('LauncherSystem')
+  const state = stateOf(stores, launcher)
+  // 5 is the refresh flag: it sits right after the data, form, pending, notice and token.
+  state[5] = true
+  const tree = renderPanel()
+  const buttons = elementsWithClass(tree, 'ndv-button')
+  const labelled = (text) => buttons.filter((node) => textsOf(node).join('') === text)
+  assert.ok(labelled(dictionaries.en.launchBatch).length > 0, 'the batch button is there')
+  assert.equal(labelled(dictionaries.en.launchBatch)[0].props.disabled, true, '批量启动 waits for the list')
+  assert.equal(labelled(dictionaries.en.launchAdd)[0].props.disabled, true, '添加 waits for the list')
+  assert.equal(labelled(dictionaries.en.refreshing)[0].props.disabled, true, 'the refresh button is busy')
+  state[5] = false
+  const idle = renderPanel()
+  const idleAdd = elementsWithClass(idle, 'ndv-button').filter((node) => textsOf(node).join('') === dictionaries.en.launchAdd)
+  assert.equal(idleAdd[0].props.disabled, false, 'and it unlocks when the refresh is done')
+  // The panel remembers which system is showing, so put it back for the tests that follow.
+  elementsWithClass(renderPanel(), 'wbm-nav-item')[0].props.onClick()
+  renderPanel()
+})
+
 test('a failed live read falls back to the cached list, with its age', () => {
   const node = seen.get('NodeSystem')
   const state = stateOf(stores, node)
