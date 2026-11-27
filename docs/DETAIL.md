@@ -16,7 +16,9 @@ the versions found in nvm, fnm, volta, and asdf and says plainly that a version 
 there, so no machine-wide switch exists. This system also exposes the `node_version` tool, so the
 model can look a version up or switch it for you. **Refresh** re-reads only what is installed on this
 machine and which version is linked; it does not re-fetch the release index. While that read is in
-flight the current rows stay on screen, dimmed, with a line above saying what is being refreshed.
+flight the current rows stay on screen, dimmed, with a line above saying what is being refreshed. The
+status strip also shows **Updated**, the moment that list was last read — the clock alone, with the
+full date and time in its tooltip.
 
 **Frontend projects** does not guess at a command. You pick the folder with the host's native folder
 dialog; it reads that folder once and offers every `scripts` entry it found. You then choose the

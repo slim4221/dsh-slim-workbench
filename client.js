@@ -90,6 +90,7 @@ window.__ModuleLoader__.load({
       loading: 'Reading the nvm-windows installation…',
       current: 'Node.js in use',
       none: 'No version linked',
+      updatedAt: 'Updated',
       inUse: 'Active',
       tabInstalled: 'Installed',
       tabAvailable: 'Available',
@@ -269,6 +270,7 @@ window.__ModuleLoader__.load({
       loading: '正在读取 nvm-windows 安装信息…',
       current: '当前使用的 Node.js',
       none: '未链接任何版本',
+      updatedAt: '更新时间',
       inUse: '当前',
       tabInstalled: '已安装',
       tabAvailable: '可安装',
@@ -817,6 +819,8 @@ window.__ModuleLoader__.load({
       const busy = pending !== null
       const refreshing = snapshot.phase === 'loading'
       const currentVersion = typeof state?.current === 'string' && state.current !== '' ? state.current : null
+      // When this answer was read, so the strip can say how fresh the list is.
+      const readAt = typeof state?.readAt === 'number' ? state.readAt : null
       const managed = state !== null && state.available === true && state.supported !== false
       const installed = Array.isArray(state?.versions) ? state.versions : []
       const installedSet = new Set(installed.map((entry) => entry.version))
@@ -892,6 +896,12 @@ window.__ModuleLoader__.load({
                 currentVersion === null ? t('none') : `v${currentVersion}`),
               h('span', { className: 'ndv-meta' },
                 state.nvmVersion === null || state.nvmVersion === undefined ? 'nvm' : `nvm ${state.nvmVersion}`),
+              readAt === null ? null : h('span', {
+                className: 'ndv-meta',
+                // The clock alone is enough in the strip; the full stamp is in the tooltip,
+                // which is also what makes an old answer obvious after a long session.
+                title: new Date(readAt).toLocaleString(),
+              }, `${t('updatedAt')} ${new Date(readAt).toLocaleTimeString()}`),
             ),
             h('ul', { className: 'ndv-paths' },
               h('li', { className: 'ndv-path' },

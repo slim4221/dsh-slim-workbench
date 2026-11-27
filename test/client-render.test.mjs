@@ -345,9 +345,16 @@ test('a refresh of the installed list shows that it is loading', () => {
     checked: [],
     current: '24.14.1',
     versions: [{ version: '24.14.1' }, { version: '14.21.3' }],
+    readAt: Date.parse('2026-11-27T09:18:09Z'),
   }
   state[0] = { phase: 'ready', state: payload, error: null }
-  assert.deepEqual(elementsWithClass(renderPanel(), 'ndv-loading'), [], 'no indicator while idle')
+  const idle = renderPanel()
+  assert.deepEqual(elementsWithClass(idle, 'ndv-loading'), [], 'no indicator while idle')
+  // The strip says when the list was read, so a stale answer is recognisable.
+  assert.ok(
+    textsOf(idle).some((line) => line.startsWith(dictionaries.en.updatedAt)),
+    'the status strip shows the update time',
+  )
 
   state[0] = { phase: 'loading', state: payload, error: null }
   const tree = renderPanel()

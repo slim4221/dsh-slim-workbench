@@ -125,6 +125,15 @@ test('a body that is not JSON, or too large, never reaches the handler', async (
   assert.equal(wrongMethod.status, 405)
 })
 
+test('the Node state says when it was read', async () => {
+  const before = Date.now()
+  const state = await call('/slim-workbench/state')
+  assert.equal(state.status, 200)
+  assert.equal(typeof state.payload.readAt, 'number', 'the payload carries the read time')
+  assert.ok(state.payload.readAt >= before, 'and it is this read, not an older one')
+  assert.ok(state.payload.readAt <= Date.now() + 5)
+})
+
 test('a saved entry comes back with its command and snapshot', async () => {
   const project = path.join(home, 'demo')
   mkdirSync(project, { recursive: true })

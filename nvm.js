@@ -251,6 +251,9 @@ export async function readState(overrides = {}) {
       checked: [],
       current: null,
       versions: installedVersions(overrides).map((version) => ({ version })),
+      // When this answer was read. Not stored anywhere: it describes the read, so a
+      // persisted copy would only ever be a stale one.
+      readAt: Date.now(),
     }
   }
   const install = resolveInstall(overrides)
@@ -268,6 +271,8 @@ export async function readState(overrides = {}) {
     checked: install.checked,
     current,
     versions,
+    // When this answer was read; see the POSIX branch above.
+    readAt: Date.now(),
   }
 }
 
