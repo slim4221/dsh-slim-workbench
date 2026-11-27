@@ -680,7 +680,7 @@ window.__ModuleLoader__.load({
 .lch-spacer { flex: 1 1 auto; }
 .lch-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dsw-alias-label-primary); cursor: pointer; }
 .lch-check > input { margin: 0; width: 14px; height: 14px; accent-color: var(--dsw-alias-brand-primary); }
-.lch-form-actions { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.lch-form-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .lch-form-actions .ndv-button { min-height: 32px; padding: 5px 16px; font-size: 13px; }
 .lch-form-actions .lch-primary { order: 2; margin-left: auto; }
 @media (max-width: 720px) {

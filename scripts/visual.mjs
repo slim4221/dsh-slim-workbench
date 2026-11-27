@@ -345,6 +345,28 @@ window.measure = () => {
     };
     scroll.scrollLeft = 0;
   }
+  // Dialog footers: the buttons must sit against the right edge, not float at the left.
+  // The dialog itself is not rendered here, so this measures the real stylesheet against
+  // the same markup the dialog builds.
+  const probe = document.createElement('div');
+  probe.className = 'lch-form-actions';
+  probe.style.width = '480px';
+  const cancel = document.createElement('button');
+  cancel.className = 'ndv-button';
+  cancel.textContent = 'cancel';
+  const confirm = document.createElement('button');
+  confirm.className = 'ndv-button lch-danger-solid';
+  confirm.textContent = 'delete';
+  probe.append(cancel, confirm);
+  pane.appendChild(probe);
+  const probeBox = probe.getBoundingClientRect();
+  const cancelBox = cancel.getBoundingClientRect();
+  const confirmBox = confirm.getBoundingClientRect();
+  result.dialogFooter = {
+    leftGap: Math.round(cancelBox.left - probeBox.left),
+    rightGap: Math.round(probeBox.right - confirmBox.right),
+  };
+  probe.remove();
   return result;
 };
 </script>
@@ -403,6 +425,7 @@ for (const windowWidth of [width, 1040]) {
     actionsWrapped: metrics.actionsWrapped,
     overflowingCells: metrics.overflowingCells,
     afterScroll: metrics.afterScroll,
+    dialogFooter: metrics.dialogFooter,
   }, null, 2))
   const problemsHere = []
   if (metrics.rows !== 4) problemsHere.push(`expected 4 rows, measured ${metrics.rows}`)
@@ -415,6 +438,10 @@ for (const windowWidth of [width, 1040]) {
   if (metrics.horizontalScroll) {
     if (!metrics.afterScroll.firstColumnVisible) problemsHere.push('the project column scrolled away')
     if (!metrics.afterScroll.lastColumnVisible) problemsHere.push('the action column scrolled away')
+  }
+  // 8px is the footer's own gap; anything bigger means the buttons are not against the edge.
+  if (metrics.dialogFooter.rightGap > 12) {
+    problemsHere.push(`dialog footer buttons sit ${metrics.dialogFooter.rightGap}px from the right edge`)
   }
   for (const message of problemsHere) problems.push(`${windowWidth}px: ${message}`)
 }

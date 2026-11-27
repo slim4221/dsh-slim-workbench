@@ -415,6 +415,30 @@ test('a refresh locks the buttons that read the list', () => {
   renderPanel()
 })
 
+test('the delete confirmation keeps its buttons in one right-hand footer', () => {
+  elementsWithClass(renderPanel(), 'wbm-nav-item')[1].props.onClick()
+  renderPanel()
+  const launcher = seen.get('LauncherSystem')
+  const state = stateOf(stores, launcher)
+  const entry = state[HOOK.data].payload.entries[0]
+  // 6 is the entry whose delete confirmation is open.
+  state[6] = entry
+  const tree = renderPanel()
+  const footer = elementsWithClass(tree, 'lch-form-actions')
+    .find((node) => textsOf(node).join('').includes(dictionaries.en.launchRemove))
+  assert.ok(footer !== undefined, 'the dialog has a footer')
+  assert.deepEqual(
+    elementsWithClass(footer, 'ndv-button').map((node) => textsOf(node).join('')),
+    [dictionaries.en.launchCancel, dictionaries.en.launchRemove],
+    'cancel first, the destructive action last',
+  )
+  // The alignment itself is CSS: `.lch-form-actions` is flex-end, which `npm run visual`
+  // measures in a real browser rather than trusting the stylesheet by eye.
+  state[6] = null
+  elementsWithClass(renderPanel(), 'wbm-nav-item')[0].props.onClick()
+  renderPanel()
+})
+
 test('a failed live read falls back to the cached list, with its age', () => {
   const node = seen.get('NodeSystem')
   const state = stateOf(stores, node)
