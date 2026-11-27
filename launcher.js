@@ -192,14 +192,19 @@ function detectLockfile(directory) {
 
 /**
  * Read one project's git facts, read-only.
+ *
+ * `--no-optional-locks` is a top-level git option and it is here for a real reason:
+ * without it `git status` refreshes its stat cache and **rewrites `.git/index`** whenever
+ * the cached stat data is stale — a write inside the project directory. With it, git
+ * still answers and writes nothing.
  * @param {string} directory project directory.
  * @returns {Promise<{ branch: string | null, changes: number | null, error: string | null }>} the facts.
  */
 async function readGit(directory) {
   const options = { cwd: directory, timeout: 5000 }
-  const head = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], options)
+  const head = await run('git', ['--no-optional-locks', 'rev-parse', '--abbrev-ref', 'HEAD'], options)
   if (!head.ok) return { branch: null, changes: null, error: head.output === '' ? 'git rev-parse failed' : head.output }
-  const status = await run('git', ['status', '--porcelain'], options)
+  const status = await run('git', ['--no-optional-locks', 'status', '--porcelain'], options)
   const branch = head.output.split(/\r?\n/)[0].trim()
   return {
     branch: branch === '' ? null : branch,
@@ -1499,6 +1504,7 @@ export const internals = {
   normalizePort,
   normalizePriority,
   normalizeVersion,
+  readGit,
   stripAnsi,
   validateEntry,
 }

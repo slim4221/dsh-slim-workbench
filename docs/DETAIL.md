@@ -52,10 +52,13 @@ Two tools, and the line between them is deliberate:
 ## What it never does
 
 The project directory is read-only for this plugin. It reads `package.json`, lockfiles, `.nvmrc`,
-`pom.xml` or `build.gradle`, `application-*.yaml`, and `git status`. It never writes, creates,
-renames, or deletes anything inside a project, never installs dependencies, never edits a lockfile,
-never runs a mutating git command, and never kills a process it did not start. Its only write target
-is `$DSH_HOME/slim-workbench/launchers.json`.
+`pom.xml` or `build.gradle`, `application-*.yaml`, and two git commands —
+`git --no-optional-locks rev-parse --abbrev-ref HEAD` and `git --no-optional-locks status
+--porcelain`. The flag matters: without it, `git status` refreshes its cached stat data and rewrites
+`.git/index`, which is a file inside the project. It never writes, creates, renames, or deletes
+anything inside a project, never installs dependencies, never edits a lockfile or any project
+configuration, never runs a mutating git command, and never kills a process it did not start. Its
+only write target is `$DSH_HOME/slim-workbench/launchers.json`.
 
 ## Data and moving machines
 

@@ -40,9 +40,11 @@ fnm、volta、asdf 里检测到的版本，并明确说明那里「版本属于 
 ## 它绝不做的事
 
 项目目录对本插件是只读的。它读 `package.json`、锁文件、`.nvmrc`、`pom.xml` / `build.gradle`、
-`application-*.yaml`、`git status`；**不写、不新建、不改名、不删除**项目里的任何文件；不安装依赖；
-不改锁文件；不执行任何写操作的 git 命令；不杀不是它启动的进程。唯一的写入目标是
-`$DSH_HOME/slim-workbench/launchers.json`。
+`application-*.yaml`，以及两条 git 命令：`git --no-optional-locks rev-parse --abbrev-ref HEAD` 与
+`git --no-optional-locks status --porcelain`。那个参数不是装饰：不加的话，`git status` 会在缓存过期时
+刷新并**改写 `.git/index`**——那是项目里的文件。**不写、不新建、不改名、不删除**项目里的任何文件；
+不安装依赖；不改锁文件、也不动项目里的任何配置；不执行任何写操作的 git 命令；不杀不是它启动的进程。
+唯一的写入目标是 `$DSH_HOME/slim-workbench/launchers.json`。
 
 ## 数据与换机器
 

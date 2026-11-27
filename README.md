@@ -37,8 +37,9 @@ dsh plugin --profile desktop add "git+https://github.com/slim4221/dsh-slim-workb
 ## 只读承诺 · Read-only guarantee
 
 - 只读 `package.json`、锁文件、`.nvmrc`、`pom.xml` / `build.gradle`、`application-*.yaml`、`git status`
-- **不写、不新建、不改名、不删除**项目里的任何文件；不做 `install`，不改锁文件
-- 不执行任何写操作的 git 命令（分支只显示，不切换）
+- **不写、不新建、不改名、不删除**项目里的任何文件；不做 `install`，不改锁文件，不动项目配置
+- git 只跑两条只读命令：`git --no-optional-locks rev-parse --abbrev-ref HEAD` 与 `git --no-optional-locks status --porcelain`。
+  `--no-optional-locks` 不是装饰：没有它，`git status` 在缓存过期时会**改写 `.git/index`**（那是项目里的文件），加上就一条字节都不动
 - 只停止它自己启动的进程树（Windows `taskkill /T`，POSIX 进程组信号）
 - 唯一的写入目标：`$DSH_HOME/slim-workbench/launchers.json`
 

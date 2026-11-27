@@ -8,7 +8,9 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { internals } from '../launcher.js'
@@ -195,6 +197,38 @@ test('inspectBackend explains an empty directory instead of guessing', (t) => {
   assert.equal(facts.profiles.length, 0)
   const codes = facts.warnings.map((warning) => warning.code)
   assert.deepEqual(codes, ['no-backend-build', 'no-server-port'])
+})
+
+test('reading git facts never writes into the repository', async (t) => {
+  const directory = project()
+  const git = (args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' })
+  try {
+    git(['--version'])
+  } catch {
+    t.skip('git is not on PATH here')
+    return
+  }
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  git(['init', '-q'])
+  writeFileSync(path.join(directory, 'a.txt'), 'x', 'utf8')
+  git(['add', '.'])
+  git(['-c', 'user.email=a@b', '-c', 'user.name=t', 'commit', '-qm', 'init'])
+
+  // Make the cached stat data stale, which is exactly when plain `git status` decides to
+  // refresh and rewrite .git/index. The plugin must read the facts and change nothing.
+  const tracked = path.join(directory, 'a.txt')
+  writeFileSync(tracked, 'x', 'utf8')
+  const past = new Date(Date.now() - 5 * 60 * 1000)
+  utimesSync(tracked, past, past)
+
+  const indexPath = path.join(directory, '.git', 'index')
+  const digest = () => createHash('sha256').update(readFileSync(indexPath)).digest('hex')
+  const before = digest()
+
+  const facts = await internals.readGit(directory)
+  assert.equal(facts.error, null)
+  assert.equal(facts.changes, 0)
+  assert.equal(digest(), before, '.git/index must be byte-identical after reading the branch')
 })
 
 test('validateEntry refuses what would not run', async (t) => {
