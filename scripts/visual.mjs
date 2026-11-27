@@ -60,6 +60,8 @@ function page() {
     --dsw-alias-label-secondary: #a9adb7;
     --dsw-alias-label-tertiary: #7d818c;
     --dsw-alias-brand-primary: #4c7ef3;
+    --dsw-alias-state-error-primary: #d9534f;
+    --dsw-alias-state-success-primary: #2f9e5f;
     --dsw-alias-bg-badge: #2b2f3a;
     --dsw-radius-md: 6px;
     --dsw-radius-xl: 12px;
@@ -367,6 +369,34 @@ window.measure = () => {
     rightGap: Math.round(probeBox.right - confirmBox.right),
   };
   probe.remove();
+  // The same question for the Node pane's confirmation, which has its own footer class.
+  const nodeProbe = document.createElement('div');
+  nodeProbe.className = 'ndv-modal-actions';
+  nodeProbe.style.width = '400px';
+  const nodeCancel = document.createElement('button');
+  nodeCancel.className = 'ndv-button';
+  nodeCancel.textContent = 'cancel';
+  const nodeConfirm = document.createElement('button');
+  nodeConfirm.className = 'ndv-button ndv-danger-solid';
+  nodeConfirm.textContent = 'remove';
+  nodeProbe.append(nodeCancel, nodeConfirm);
+  pane.appendChild(nodeProbe);
+  const nodeBox = nodeProbe.getBoundingClientRect();
+  result.nodeFooter = {
+    leftGap: Math.round(nodeCancel.getBoundingClientRect().left - nodeBox.left),
+    rightGap: Math.round(nodeBox.right - nodeConfirm.getBoundingClientRect().right),
+    dangerBackground: getComputedStyle(nodeConfirm).backgroundColor,
+    dangerColor: getComputedStyle(nodeConfirm).color,
+    dangerRuleLoaded: [...document.styleSheets].some((sheet) => {
+      try {
+        return [...sheet.cssRules].some((rule) => String(rule.cssText).includes('ndv-danger-solid'))
+      } catch {
+        return false
+      }
+    }),
+    tokenValue: getComputedStyle(document.documentElement).getPropertyValue('--dsw-alias-state-error-primary'),
+  };
+  nodeProbe.remove();
   return result;
 };
 </script>
@@ -426,6 +456,7 @@ for (const windowWidth of [width, 1040]) {
     overflowingCells: metrics.overflowingCells,
     afterScroll: metrics.afterScroll,
     dialogFooter: metrics.dialogFooter,
+    nodeFooter: metrics.nodeFooter,
   }, null, 2))
   const problemsHere = []
   if (metrics.rows !== 4) problemsHere.push(`expected 4 rows, measured ${metrics.rows}`)
@@ -442,6 +473,14 @@ for (const windowWidth of [width, 1040]) {
   // 8px is the footer's own gap; anything bigger means the buttons are not against the edge.
   if (metrics.dialogFooter.rightGap > 12) {
     problemsHere.push(`dialog footer buttons sit ${metrics.dialogFooter.rightGap}px from the right edge`)
+  }
+  if (metrics.nodeFooter.rightGap > 12) {
+    problemsHere.push(`Node dialog buttons sit ${metrics.nodeFooter.rightGap}px from the right edge`)
+  }
+  // A destructive button with no background is a theming failure, not a preference:
+  // `rgb(...)` is opaque, `rgba(..., 0)` is what a lost declaration looks like.
+  if (!String(metrics.nodeFooter.dangerBackground).startsWith('rgb(')) {
+    problemsHere.push(`the destructive button has no background (${metrics.nodeFooter.dangerBackground})`)
   }
   for (const message of problemsHere) problems.push(`${windowWidth}px: ${message}`)
 }

@@ -13,7 +13,7 @@ version, profile) and **never writes into a project directory**.
 
 | 系统 | 做什么 |
 | --- | --- |
-| **Node 管理** | 列出 nvm-windows 管理的版本，切换 / 安装 / 卸载；macOS 与 Linux 上列出 nvm·fnm·volta·asdf 检测到的版本（不提供全机器切换）。同时给智能体一个 `node_version` 工具。 |
+| **Node 管理** | 列出 nvm-windows 管理的版本，切换 / 安装 / 卸载。**卸载有二次确认**（会显示将被删除的目录）；当前使用的版本点「卸载」会直接说明"先切换"，而不是给一个点了没反应的灰按钮。macOS 与 Linux 上列出 nvm·fnm·volta·asdf 检测到的版本（不提供全机器切换）。同时给智能体一个 `node_version` 工具。 |
 | **前端项目管理** | 选择文件夹 → 从 `package.json` 的全部 `scripts` 里选一条 + 选包管理器（**都不预选**）→ 可选锁定 Node 版本、填端口 →「保存并启动」。端口就绪后给出局域网链接。每行两个按钮（启动/停止、编辑），输出与删除收进「更多」。表格用固定列宽，**项目与操作两列冻结**、中间横向滚动，「项目地址」单列。顶部的「刷新」一次重读**所有**项目（先查目录还在不在），刷新期间「批量启动」「添加」一起锁住、按钮显示「刷新中…」。**批量启动默认同时启动**；也可以切成「逐个启动，等上一条端口就绪」（按列表顺序）——依赖别的服务的项目用后者。就绪预算跟着栈走：前端 3 分钟、后端 5 分钟。 |
 | **后端项目管理** | Spring Boot：选 Maven / Gradle + Profile（从 `application-*.yaml` 读出），端口从 `server.port` 预填，就绪预算 5 分钟（前端 3 分钟）。Profile 通过 `SPRING_PROFILES_ACTIVE` 传给子进程；项目自带完整的 `mvnw` / `gradlew` 时优先用它，否则用全局 `mvn` / `gradle`。 |
 

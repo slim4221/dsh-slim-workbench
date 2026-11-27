@@ -429,7 +429,7 @@ test('the delete confirmation keeps its buttons in one right-hand footer', () =>
   assert.ok(footer !== undefined, 'the dialog has a footer')
   assert.deepEqual(
     elementsWithClass(footer, 'ndv-button').map((node) => textsOf(node).join('')),
-    [dictionaries.en.launchCancel, dictionaries.en.launchRemove],
+    [dictionaries.en.cancel, dictionaries.en.launchRemove],
     'cancel first, the destructive action last',
   )
   // The alignment itself is CSS: `.lch-form-actions` is flex-end, which `npm run visual`
@@ -437,6 +437,35 @@ test('the delete confirmation keeps its buttons in one right-hand footer', () =>
   state[6] = null
   elementsWithClass(renderPanel(), 'wbm-nav-item')[0].props.onClick()
   renderPanel()
+})
+
+test('uninstalling a version asks first, with the folder it deletes', () => {
+  elementsWithClass(renderPanel(), 'wbm-nav-item')[0].props.onClick()
+  renderPanel()
+  const node = seen.get('NodeSystem')
+  const state = stateOf(stores, node)
+  // 9 is the version whose confirmation is open; the data it needs is at 0.
+  state[0] = { phase: 'ready', state: nodeState(), error: null }
+  state[9] = '14.21.3'
+  const tree = renderPanel()
+  const dialog = elementsWithClass(tree, 'ndv-modal')
+  assert.equal(dialog.length, 1, 'one confirmation dialog')
+  const text = textsOf(dialog[0])
+  assert.ok(text.includes(dictionaries.en.uninstallTitle))
+  assert.ok(
+    text.some((line) => line.includes('14.21.3')),
+    'the version being removed is named',
+  )
+  assert.ok(
+    text.some((line) => line.includes('v14.21.3')),
+    'and the folder nvm would delete',
+  )
+  assert.deepEqual(
+    elementsWithClass(dialog[0], 'ndv-button').map((node_) => textsOf(node_).join('')),
+    [dictionaries.en.cancel, dictionaries.en.uninstall],
+    'cancel first, remove last',
+  )
+  state[9] = null
 })
 
 test('a failed live read falls back to the cached list, with its age', () => {

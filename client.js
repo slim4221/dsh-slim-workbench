@@ -117,6 +117,9 @@ window.__ModuleLoader__.load({
       switchedTo: 'Switched to Node.js v{version}.',
       installDone: 'Installed Node.js v{version}.',
       uninstallDone: 'Removed Node.js v{version}.',
+      uninstallTitle: 'Uninstall Node.js?',
+      uninstallConfirm: 'Remove Node.js v{version} from this machine? nvm deletes the folder it manages for it.',
+      uninstallInUse: 'Node.js v{version} is the version in use: switch to another version before removing it.',
       switchFailedDetail: 'Switching to v{version} failed: {detail}',
       installFailed: 'Installing v{version} failed: {detail}',
       uninstallFailed: 'Removing v{version} failed: {detail}',
@@ -145,7 +148,7 @@ window.__ModuleLoader__.load({
       launchNamePlaceholder: 'Web front end',
       launchDirLabel: 'Directory',
       launchSave: 'Save',
-      launchCancel: 'Cancel',
+      cancel: 'Cancel',
       launchStart: 'Start',
       launchStarting: 'Starting…',
       launchStop: 'Stop',
@@ -300,6 +303,9 @@ window.__ModuleLoader__.load({
       switchedTo: '已切换到 Node.js v{version}。',
       installDone: '已安装 Node.js v{version}。',
       uninstallDone: '已卸载 Node.js v{version}。',
+      uninstallTitle: '卸载这个 Node.js 版本？',
+      uninstallConfirm: '从这台机器上删除 Node.js v{version}？nvm 会把它的目录整个删掉。',
+      uninstallInUse: 'v{version} 是当前使用的版本：先切换到别的版本再卸载。',
       switchFailedDetail: '切换到 v{version} 失败：{detail}',
       installFailed: '安装 v{version} 失败：{detail}',
       uninstallFailed: '卸载 v{version} 失败：{detail}',
@@ -328,7 +334,7 @@ window.__ModuleLoader__.load({
       launchNamePlaceholder: '前端项目',
       launchDirLabel: '目录',
       launchSave: '保存',
-      launchCancel: '取消',
+      cancel: '取消',
       launchStart: '启动',
       launchStarting: '启动中…',
       launchStop: '停止',
@@ -512,6 +518,18 @@ window.__ModuleLoader__.load({
 .ndv-table tbody tr[data-current="true"] td:first-child { box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary); }
 .ndv-col-actions { width: 1%; text-align: right; white-space: nowrap; }
 .ndv-row-actions { display: inline-flex; gap: 6px; justify-content: flex-end; }
+.ndv-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 28px; background: color-mix(in srgb, var(--dsw-alias-bg-base, #000000) 45%, transparent); backdrop-filter: blur(2px); }
+.ndv-modal { display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; width: min(440px, 100%); padding: 20px; border-radius: var(--dsw-radius-xl, 12px); background: var(--dsw-alias-bg-layer-1, #ffffff); box-shadow: var(--dsw-elevation-prominent, 0 12px 32px rgba(0, 0, 0, 0.18)); }
+.ndv-modal-head { display: flex; align-items: center; gap: 8px; }
+.ndv-modal-title { flex: 1; margin: 0; font-size: 16px; font-weight: 600; line-height: 24px; }
+.ndv-modal-close { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 15px; line-height: 1; cursor: pointer; }
+@media (hover: hover) {
+  .ndv-modal-close:hover { background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-2)); color: var(--dsw-alias-label-primary); }
+}
+.ndv-modal-text { margin: 0; font-size: 14px; line-height: 22px; }
+.ndv-modal-path { margin: 0; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 11.5px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); text-overflow: ellipsis; white-space: nowrap; }
+.ndv-modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.ndv-modal-actions .ndv-button { min-height: 32px; padding: 5px 16px; font-size: 13px; }
 .ndv-tag { display: inline-block; padding: 0 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
 .ndv-tag--on { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-brand-primary); }
 .ndv-dim { color: var(--dsw-alias-label-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -522,6 +540,11 @@ window.__ModuleLoader__.load({
 .ndv-button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, var(--dsw-alias-bg-layer-2)); }
 .ndv-button:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-brand-primary)); outline-offset: -2px; }
 .ndv-button:disabled { opacity: 0.55; cursor: default; }
+/* After the base rule on purpose: same specificity, so the later declaration wins. */
+.ndv-danger-solid { color: var(--dsw-alias-label-primary-foreground, #ffffff); background: var(--dsw-alias-state-error-primary); border-color: transparent; }
+@media (hover: hover) {
+  .ndv-danger-solid:hover:not(:disabled) { background: var(--dsw-alias-state-error-primary); filter: brightness(1.08); }
+}
 .ndv-note { margin: 0; font-size: 12px; }
 .ndv-note--muted { color: var(--dsw-alias-label-secondary); }
 .ndv-notice { margin: 0; padding: 8px 12px; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-md, 8px); font-size: 13px; color: var(--dsw-alias-label-primary); white-space: pre-wrap; word-break: break-word; }
@@ -804,6 +827,23 @@ window.__ModuleLoader__.load({
       const [pending, setPending] = React.useState(null)
       const [notice, setNotice] = React.useState(null)
       const [attempt, setAttempt] = React.useState(0)
+      // The version whose uninstall confirmation is open, if any.
+      const [uninstallTarget, setUninstallTarget] = React.useState(null)
+      const uninstallCancelRef = React.useRef(null)
+      const confirmOpen = uninstallTarget !== null
+      // A destructive dialog: Escape cancels, and the safe button holds the focus.
+      React.useEffect(() => {
+        if (!confirmOpen) return undefined
+        const node = uninstallCancelRef.current
+        if (node !== null && node !== undefined && typeof node.focus === 'function') node.focus()
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return
+          event.stopPropagation()
+          setUninstallTarget(null)
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        return () => { document.removeEventListener('keydown', onKeyDown, true) }
+      }, [confirmOpen])
 
       React.useEffect(() => {
         const controller = new AbortController()
@@ -1076,9 +1116,18 @@ window.__ModuleLoader__.load({
                 h('button', {
                   type: 'button',
                   className: 'ndv-button',
-                  disabled: busy || inUse,
+                  disabled: busy,
                   'aria-label': `${t('uninstall')} v${entry.version}`,
-                  onClick: inUse ? undefined : () => { perform('uninstall', entry.version).catch(() => {}) },
+                  // The version in use cannot be removed. Saying so on the click is the
+                  // point: a disabled button with no explanation reads as "broken".
+                  title: inUse ? fill(t('uninstallInUse'), { version: entry.version }) : undefined,
+                  onClick: () => {
+                    if (inUse) {
+                      setNotice({ kind: 'error', text: fill(t('uninstallInUse'), { version: entry.version }) })
+                      return
+                    }
+                    setUninstallTarget(entry.version)
+                  },
                 }, working === 'uninstall' ? t('uninstalling') : t('uninstall')),
               ),
             ),
@@ -1208,6 +1257,63 @@ window.__ModuleLoader__.load({
         return tab === 'installed' ? installedTable() : availableTable()
       }
 
+      /**
+       * The uninstall confirmation.
+       *
+       * Removing a version deletes the folder nvm manages for it, so it asks first and shows
+       * both the version and that path — the two things a mistaken click gets wrong.
+       * @param {string} version the version being removed.
+       * @returns {object} the overlay element.
+       */
+      function uninstallModal(version) {
+        const folder = typeof state?.nvmHome === 'string' && state.nvmHome !== ''
+          ? `${state.nvmHome}\\v${version}`
+          : null
+        return h('div', {
+          className: 'ndv-modal-backdrop',
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget) setUninstallTarget(null)
+          },
+        },
+          h('div', {
+            className: 'ndv-modal',
+            role: 'alertdialog',
+            'aria-modal': 'true',
+            'aria-label': t('uninstallTitle'),
+          },
+            h('div', { className: 'ndv-modal-head' },
+              h('h3', { className: 'ndv-modal-title' }, t('uninstallTitle')),
+              h('button', {
+                type: 'button',
+                className: 'ndv-modal-close',
+                'aria-label': t('cancel'),
+                onClick: () => { setUninstallTarget(null) },
+              }, '\u2715'),
+            ),
+            h('p', { className: 'ndv-modal-text' }, fill(t('uninstallConfirm'), { version })),
+            folder === null ? null : h('p', { className: 'ndv-modal-path', title: folder }, folder),
+            h('div', { className: 'ndv-modal-actions' },
+              h('button', {
+                type: 'button',
+                className: 'ndv-button',
+                ref: uninstallCancelRef,
+                disabled: busy,
+                onClick: () => { setUninstallTarget(null) },
+              }, t('cancel')),
+              h('button', {
+                type: 'button',
+                className: 'ndv-button ndv-danger-solid',
+                disabled: busy,
+                onClick: () => {
+                  setUninstallTarget(null)
+                  perform('uninstall', version).catch(() => {})
+                },
+              }, busy ? t('uninstalling') : t('uninstall')),
+            ),
+          ),
+        )
+      }
+
       // A switch or install in flight outranks a stale outcome: it says what is happening now.
       const banner = busy
         ? {
@@ -1249,6 +1355,7 @@ window.__ModuleLoader__.load({
         ),
         h('div', { className: 'ndv-scroll', 'data-busy': dimmed ? 'true' : undefined }, body()),
         managed ? h('p', { className: 'ndv-footnote' }, t('footnote')) : null,
+        uninstallTarget === null ? null : uninstallModal(uninstallTarget),
       )
     }
 
@@ -2085,7 +2192,7 @@ window.__ModuleLoader__.load({
               className: 'ndv-button',
               disabled: busy,
               onClick: () => { setForm(null) },
-            }, t('launchCancel')),
+            }, t('cancel')),
           ),
         )
       }
@@ -2213,8 +2320,8 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button',
                 className: 'lch-modal-close',
-                'aria-label': t('launchCancel'),
-                title: t('launchCancel'),
+                'aria-label': t('cancel'),
+                title: t('cancel'),
                 onClick: () => { setForm(null) },
               }, '\u2715'),
             ),
@@ -2505,7 +2612,7 @@ window.__ModuleLoader__.load({
             setBatchOpen(false)
             setBatchRun(null)
           },
-        }, running ? t('batchStop') : t('launchCancel')))
+        }, running ? t('batchStop') : t('cancel')))
         footer.push(h('button', {
           key: 'start',
           type: 'button',
@@ -2533,7 +2640,7 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button',
                 className: 'lch-modal-close',
-                'aria-label': t('launchCancel'),
+                'aria-label': t('cancel'),
                 disabled: running,
                 onClick: () => { setBatchOpen(false); setBatchRun(null) },
               }, '\u2715'),
@@ -2617,8 +2724,8 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button',
                 className: 'lch-modal-close',
-                'aria-label': t('launchCancel'),
-                title: t('launchCancel'),
+                'aria-label': t('cancel'),
+                title: t('cancel'),
                 onClick: () => { setLogTarget(null) },
               }, '\u2715'),
             ),
@@ -2633,7 +2740,7 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 className: 'ndv-button lch-primary',
                 onClick: () => { setLogTarget(null) },
-              }, t('launchCancel')),
+              }, t('cancel')),
             ),
           ),
         )
@@ -2666,7 +2773,7 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button',
                 className: 'lch-modal-close',
-                'aria-label': t('launchCancel'),
+                'aria-label': t('cancel'),
                 onClick: () => { setRemoveTarget(null) },
               }, '\u2715'),
             ),
@@ -2680,7 +2787,7 @@ window.__ModuleLoader__.load({
                 ref: confirmCancelRef,
                 disabled: working,
                 onClick: () => { setRemoveTarget(null) },
-              }, t('launchCancel')),
+              }, t('cancel')),
               h('button', {
                 type: 'button',
                 className: 'ndv-button lch-danger-solid',
