@@ -150,7 +150,27 @@ test('a saved entry comes back with its command and snapshot', async () => {
   assert.equal(entry.command, 'pnpm run dev')
   assert.equal(entry.status, 'stopped')
   assert.equal(entry.port, 5173)
+  assert.equal(entry.priority, 2)
   assert.ok(entry.inspectedAt !== null, 'saving stamps the project snapshot')
+
+  // The panel no longer sends a priority: editing must keep the stored one, not reset it.
+  const edited = await call('/slim-workbench/launch/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      id: entry.id,
+      name: 'demo-web-renamed',
+      projectPath: project,
+      stack: 'frontend',
+      kind: 'script',
+      pm: 'pnpm',
+      script: 'dev',
+      port: 5173,
+    }),
+  })
+  assert.equal(edited.payload.ok, true)
+  assert.equal(edited.payload.state.entries[0].name, 'demo-web-renamed')
+  assert.equal(edited.payload.state.entries[0].priority, 2, 'an omitted priority keeps what the entry stores')
 
   // The refusals a user can actually hit.
   const noName = await call('/slim-workbench/launch/save', {

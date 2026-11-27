@@ -19,17 +19,15 @@ model can look a version up or switch it for you.
 **Frontend projects** does not guess at a command. You pick the folder with the host's native folder
 dialog; it reads that folder once and offers every `scripts` entry it found. You then choose the
 package manager and the script — neither is preselected, and a lockfile is shown beside the control as
-a hint, never applied on your behalf. Optional: pin a Node version for this entry only, a port, and a
-priority. Start runs the command in that folder; the row reports *starting*, then *ready* when the
+a hint, never applied on your behalf. Optional: pin a Node version for this entry only, and a port.
+Start runs the command in that folder; the row reports *starting*, then *ready* when the
 port answers, and then shows the LAN address (the local address is implied by the machine you are
 on). A row shows two actions — start/stop and edit — and keeps output, refresh, and delete under
 **More**. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
 refreshed while the dialog is open. **Batch start** starts the selected entries at the same time by
 default; a second mode starts them one by one, each after the previous one answers on its port, in
-priority order — for projects that must come up in order (an SSO service: give it priority 0). With
-everything starting at once there is no order to honour, so priority only decides the serial mode and
-the order of that dialog's list. Its readiness budget follows the stack: three minutes for a dev
-server, five for a backend.
+list order — for projects that must come up in order (an SSO service: add it first). Its readiness
+budget follows the stack: three minutes for a dev server, five for a backend.
 
 **Backend projects** covers Spring Boot: choose Maven or Gradle, choose a Spring profile from the
 `application-*.yaml` files the project ships, and the port is read from `server.port`. The profile
@@ -61,8 +59,11 @@ is `$DSH_HOME/slim-workbench/launchers.json`.
 
 ## Data and moving machines
 
-An entry stores the absolute project path, the command conditions you chose, a port, a priority,
+An entry stores the absolute project path, the command conditions you chose, a port,
 whether it takes part in a batch start, and a small inspection snapshot (branch, port, warnings).
+It also keeps a `priority` field that nothing reads at the moment: there is no control for it, and
+the start order is the list order. The value is preserved on every save so it is still there when an
+ordering rule wants it again.
 Nothing else — no sources, no secrets, no environment.
 
 Because the data file lives outside the package, **a fresh install starts with empty lists**. Copying

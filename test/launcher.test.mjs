@@ -238,14 +238,23 @@ test('validateEntry keeps a real choice intact', async (t) => {
     pm: 'pnpm',
     script: 'dev',
     port: '5173',
-    priority: '2',
     nodeVersion: 'v20.11.1',
   }, context)
   assert.equal(result.ok, true)
   assert.equal(result.value.pm, 'pnpm')
   assert.equal(result.value.script, 'dev')
   assert.equal(result.value.port, 5173)
-  assert.equal(result.value.priority, 2)
   assert.equal(result.value.nodeVersion, '20.11.1')
   assert.equal(result.value.batchEnabled, true)
+  // No priority in the request: the caller decides whether to keep the stored one.
+  assert.equal(result.value.priority, undefined)
+  // A value that is present is still normalized, so the field keeps working when reused.
+  const kept = await internals.validateEntry({
+    name: 'gb-web',
+    projectPath: directory,
+    kind: 'custom',
+    customCommand: 'npm run dev',
+    priority: '0',
+  }, context)
+  assert.equal(kept.value.priority, 0)
 })

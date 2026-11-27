@@ -1092,7 +1092,9 @@ async function validateEntry(input, context) {
       customCommand: kind === 'custom' ? customCommand : null,
       nodeVersion,
       port: normalizePort(source.port),
-      priority: normalizePriority(source.priority),
+      // The panel offers no priority control at the moment, so omission must mean "leave
+      // what is stored alone": a value the user set earlier must not be reset by an edit.
+      priority: source.priority === undefined ? undefined : normalizePriority(source.priority),
       batchEnabled: source.batchEnabled !== false,
     },
   }
@@ -1148,7 +1150,7 @@ export function saveEntry(input, context) {
       customCommand: checked.value.customCommand,
       nodeVersion: checked.value.nodeVersion,
       port: checked.value.port,
-      priority: checked.value.priority,
+      priority: checked.value.priority ?? existing?.priority ?? PRIORITY_DEFAULT,
       batchEnabled: checked.value.batchEnabled,
       createdAt: existing?.createdAt ?? Date.now(),
     }
