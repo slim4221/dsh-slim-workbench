@@ -85,6 +85,8 @@ window.__ModuleLoader__.load({
       subtitle: 'The Node.js versions this machine has, and which one is in use.',
       refresh: 'Refresh',
       refreshing: 'Refreshing…',
+      refreshingInstalled: 'Refreshing the installed versions…',
+      refreshOnlyInstalled: 'Re-reads the locally installed versions only',
       loading: 'Reading the nvm-windows installation…',
       current: 'Node.js in use',
       none: 'No version linked',
@@ -262,6 +264,8 @@ window.__ModuleLoader__.load({
       subtitle: '这台机器装了哪些 Node.js 版本，现在用的是哪个。',
       refresh: '刷新',
       refreshing: '刷新中…',
+      refreshingInstalled: '正在刷新本机已安装的版本…',
+      refreshOnlyInstalled: '只重新读取本机已安装的版本',
       loading: '正在读取 nvm-windows 安装信息…',
       current: '当前使用的 Node.js',
       none: '未链接任何版本',
@@ -518,6 +522,17 @@ window.__ModuleLoader__.load({
 .ndv-warn { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border: 0.5px solid var(--dsw-alias-state-warn-primary); border-radius: var(--dsw-radius-xl, 12px); }
 .ndv-warn-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary)); }
 .ndv-footnote { flex: none; margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.ndv-loading { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.ndv-spin { display: inline-block; flex: none; width: 11px; height: 11px; border: 1.5px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: ndv-spin 700ms linear infinite; }
+@keyframes ndv-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ndv-spin { animation: none; }
+}
+/* A refresh keeps the old rows visible but says they are the old answer. */
+.ndv-scroll[data-busy="true"] { opacity: 0.55; }
+.ndv-refresh { display: inline-flex; align-items: center; gap: 6px; }
 @media (max-width: 720px) {
   .ndv-search { width: 120px; }
   .ndv-col-date { display: none; }
@@ -892,14 +907,19 @@ window.__ModuleLoader__.load({
           ),
           h('button', {
             type: 'button',
-            className: 'ndv-button',
+            className: 'ndv-button ndv-refresh',
+            // Only the installed list is re-read: the release index keeps whatever it
+            // already fetched, so switching tabs afterwards costs no request.
+            title: t('refreshOnlyInstalled'),
             onClick: () => {
               setNotice(null)
               setAttempt((value) => value + 1)
             },
             disabled: refreshing || busy,
             'aria-busy': refreshing ? 'true' : undefined,
-          }, refreshing ? t('refreshing') : t('refresh')),
+          },
+            refreshing ? h('span', { key: 'spin', className: 'ndv-spin', 'aria-hidden': 'true' }) : null,
+            h('span', { key: 'label' }, refreshing ? t('refreshing') : t('refresh'))),
         )
       }
 
@@ -1145,6 +1165,11 @@ window.__ModuleLoader__.load({
         }
         : notice
 
+      // A refresh over data already on screen says so in place, and dims the list it is
+      // about to replace: the rows are the old answer until the new one lands. The release
+      // tab is not being re-read, so it is never dimmed.
+      const reloading = refreshing && state !== null
+      const dimmed = reloading && tab === 'installed'
       return h('div', { className: 'ndv-body' },
         h('style', null, SYSTEM_STYLES),
         h('div', { className: 'ndv-pinned' },
@@ -1158,9 +1183,12 @@ window.__ModuleLoader__.load({
             role: banner.kind === 'error' ? 'alert' : 'status',
           }, banner.text),
           managed ? statusStrip() : null,
+          reloading ? h('p', { className: 'ndv-loading', role: 'status', 'aria-live': 'polite' },
+            h('span', { className: 'ndv-spin', 'aria-hidden': 'true' }),
+            h('span', null, t('refreshingInstalled'))) : null,
           managed ? tabBar() : null,
         ),
-        h('div', { className: 'ndv-scroll' }, body()),
+        h('div', { className: 'ndv-scroll', 'data-busy': dimmed ? 'true' : undefined }, body()),
         managed ? h('p', { className: 'ndv-footnote' }, t('footnote')) : null,
       )
     }

@@ -14,7 +14,9 @@ switches, installs, or removes a version. The machine's symlink is the only thin
 version in use can be neither switched away from nor removed. On macOS and Linux the same pane lists
 the versions found in nvm, fnm, volta, and asdf and says plainly that a version belongs to a shell
 there, so no machine-wide switch exists. This system also exposes the `node_version` tool, so the
-model can look a version up or switch it for you.
+model can look a version up or switch it for you. **Refresh** re-reads only what is installed on this
+machine and which version is linked; it does not re-fetch the release index. While that read is in
+flight the current rows stay on screen, dimmed, with a line above saying what is being refreshed.
 
 **Frontend projects** does not guess at a command. You pick the folder with the host's native folder
 dialog; it reads that folder once and offers every `scripts` entry it found. You then choose the

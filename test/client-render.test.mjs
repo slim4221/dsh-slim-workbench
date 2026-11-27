@@ -326,6 +326,46 @@ test('the output dialog draws the buffered lines', () => {
   assert.ok(textsOf(tree).some((line) => line.trim() === truncated), 'a truncated log says how much it shows')
 })
 
+test('a refresh of the installed list shows that it is loading', () => {
+  // Back to the Node pane, then hand it a refresh in flight over data already on screen.
+  const nav = elementsWithClass(renderPanel(), 'wbm-nav-item')
+  nav[0].props.onClick()
+  renderPanel()
+  const node = seen.get('NodeSystem')
+  assert.ok(node !== undefined, 'the Node pane renders')
+  const state = stateOf(stores, node)
+  const payload = {
+    platform: 'win32',
+    supported: true,
+    available: true,
+    nvmVersion: '1.1.10',
+    nvmHome: 'F:\\nvm',
+    symlink: 'F:\\nodejs',
+    symlinkPresent: true,
+    checked: [],
+    current: '24.14.1',
+    versions: [{ version: '24.14.1' }, { version: '14.21.3' }],
+  }
+  state[0] = { phase: 'ready', state: payload, error: null }
+  assert.deepEqual(elementsWithClass(renderPanel(), 'ndv-loading'), [], 'no indicator while idle')
+
+  state[0] = { phase: 'loading', state: payload, error: null }
+  const tree = renderPanel()
+  const loading = elementsWithClass(tree, 'ndv-loading')
+  assert.equal(loading.length, 1)
+  assert.ok(textsOf(loading[0]).includes(dictionaries.en.refreshingInstalled))
+  // The button carries a spinner and says what it is doing.
+  const button = elementsWithClass(tree, 'ndv-refresh')[0]
+  assert.equal(elementsWithClass(button, 'ndv-spin').length, 1)
+  assert.ok(textsOf(button).includes(dictionaries.en.refreshing))
+  // The rows stay, dimmed: they are the previous answer until the new one lands.
+  const scroller = elementsWithClass(tree, 'ndv-scroll')[0]
+  assert.equal(scroller.props['data-busy'], 'true')
+  assert.ok(textsOf(tree).includes('v24.14.1'), 'the installed rows are still there')
+
+  state[0] = { phase: 'ready', state: payload, error: null }
+})
+
 test('the dictionaries the panel registers stay in step', () => {
   const keys = Object.keys(dictionaries.en)
   assert.equal(keys.length, Object.keys(dictionaries.zh).length)
