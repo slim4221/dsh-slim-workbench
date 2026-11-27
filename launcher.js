@@ -1279,20 +1279,22 @@ export function saveEntry(input, context) {
  * @returns {Promise<object>} `{ ok: true, missing, state }`.
  */
 export function refreshAllEntries(context) {
-  return serialize(async () => {
-    const entries = readEntries()
-    const missing = entries
-      .filter((entry) => !isDirectory(entry.projectPath))
-      .map((entry) => ({ id: entry.id, name: entry.name, projectPath: entry.projectPath }))
-    if (entries.length > 0) {
-      const stamped = await Promise.all(
-        entries.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]),
-      )
-      const byId = new Map(stamped)
-      writeEntries(entries.map((entry) => ({ ...entry, facts: byId.get(entry.id) ?? entry.facts })))
+  // The reads happen before the queue is taken: inspecting N projects takes as long as
+  // git needs, and while this runs the queue must stay free for a save or a remove.
+  const observed = readEntries()
+  const missing = observed
+    .filter((entry) => !isDirectory(entry.projectPath))
+    .map((entry) => ({ id: entry.id, name: entry.name, projectPath: entry.projectPath }))
+  const stamped = Promise.all(observed.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]))
+  return stamped.then((pairs) => serialize(async () => {
+    // Re-read inside the queue: an entry removed while git was running must not come back.
+    const current = readEntries()
+    const byId = new Map(pairs)
+    if (current.length > 0) {
+      writeEntries(current.map((entry) => (byId.has(entry.id) ? { ...entry, facts: byId.get(entry.id) } : entry)))
     }
     return { ok: true, missing, state: await readLauncherState(context) }
-  })
+  }))
 }
 
 /**

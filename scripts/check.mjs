@@ -343,6 +343,22 @@ for (const file of testFiles) {
   if (!testScript.includes(label)) fail(`package.json: the "test" script does not run ${label}`)
 }
 
+// 12. A CSS class declared in the client's style strings but applied nowhere is either a
+//     typo or the leftover of a removed element: neither can be seen by reading the diff.
+//     The class is looked up in the source *outside* the style strings, so a class reached
+//     through a variable or a computed string still counts as used.
+const clientSource = readFileSync(join(root, 'client.js'), 'utf8')
+const styleBlocks = [...clientSource.matchAll(/STYLES = `([\s\S]*?)`\n/g)].map((match) => match[1])
+if (styleBlocks.length === 0) fail('client.js: no `STYLES = \`…\`` block found, so the CSS check cannot run')
+const outsideStyles = styleBlocks.reduce((text, block) => text.replace(block, ''), clientSource)
+const declaredClasses = new Set()
+for (const block of styleBlocks) {
+  for (const match of block.matchAll(/\.([a-z][a-z0-9-]+)(?=[\s,:{.[>]|$)/g)) declaredClasses.add(match[1])
+}
+for (const name of declaredClasses) {
+  if (!outsideStyles.includes(name)) fail(`client.js: .${name} is declared in CSS but applied nowhere`)
+}
+
 if (notes.length > 0) console.log(`note:\n  ${notes.join('\n  ')}`)
 
 if (failures.length === 0) {
