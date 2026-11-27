@@ -29,7 +29,10 @@ port answers, and then shows the LAN address (the local address is implied by th
 on). A row shows two actions — start/stop and edit — and keeps output and delete under
 **More**. The directory has its own column, the widths are fixed, and the project and action columns
 stay frozen while the middle scrolls. **Refresh**, above the list, re-reads every project in one
-request. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
+request and answers the first question first: which folders are gone, by name and path. The same
+folder may be added more than once — one entry per script of a monorepo — because the script, port,
+and Node version are per entry. Priority is filled and stored in the editor only; the list does not
+show it. **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
 refreshed while the dialog is open. **Batch start** starts the selected entries at the same time by
 default; a second mode starts them one by one, each after the previous one answers on its port, in
 list order — for projects that must come up in order (an SSO service: add it first). Its readiness

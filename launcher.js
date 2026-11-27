@@ -1271,12 +1271,19 @@ export function saveEntry(input, context) {
  *
  * The panel has one Refresh action instead of one per row: the list is read as a whole,
  * so refreshing is one round trip and one file write rather than N of each.
+ *
+ * Whether the folder still exists is answered first and reported back by name: a project
+ * that was moved or deleted is the one thing the user has to act on, and it should not
+ * have to be read out of a warning line in the row that is now wrong.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
- * @returns {Promise<object>} `{ ok: true, state }`.
+ * @returns {Promise<object>} `{ ok: true, missing, state }`.
  */
 export function refreshAllEntries(context) {
   return serialize(async () => {
     const entries = readEntries()
+    const missing = entries
+      .filter((entry) => !isDirectory(entry.projectPath))
+      .map((entry) => ({ id: entry.id, name: entry.name, projectPath: entry.projectPath }))
     if (entries.length > 0) {
       const stamped = await Promise.all(
         entries.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]),
@@ -1284,7 +1291,7 @@ export function refreshAllEntries(context) {
       const byId = new Map(stamped)
       writeEntries(entries.map((entry) => ({ ...entry, facts: byId.get(entry.id) ?? entry.facts })))
     }
-    return { ok: true, state: await readLauncherState(context) }
+    return { ok: true, missing, state: await readLauncherState(context) }
   })
 }
 

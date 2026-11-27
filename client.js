@@ -169,7 +169,6 @@ window.__ModuleLoader__.load({
       launchPortPlaceholder: '5173',
       launchPriorityLabel: 'Priority',
       launchPriorityHint: 'Smaller is earlier. Stored for now, but nothing uses it yet: the start order is the list order.',
-      launchPriorityChip: 'priority {count}',
       launchPick: 'Choose folder',
       launchDetected: 'Detected {what} — a hint only',
       launchNoLockfile: 'No lockfile found: pick the package manager yourself',
@@ -185,6 +184,7 @@ window.__ModuleLoader__.load({
       launchBlocked: 'This entry cannot start until its warning is fixed',
       refreshAllHint: "Re-read every project's branch, lockfile, and warnings",
       refreshAllBusy: 'Re-reading every project…',
+      refreshMissing: 'These project folders are gone: {names}',
       actionsMore: 'More',
       launchScriptLoading: 'Reading scripts…',
       launchLog: 'Output',
@@ -350,7 +350,6 @@ window.__ModuleLoader__.load({
       launchPortPlaceholder: '5173',
       launchPriorityLabel: '优先级',
       launchPriorityHint: '数字越小越靠前。目前只记录、暂时不参与启动顺序（顺序就是列表顺序）。',
-      launchPriorityChip: '优先 {count}',
       launchPick: '选择文件夹',
       launchDetected: '检测到 {what} —— 仅提示',
       launchNoLockfile: '没找到锁文件：包管理器请自行确认',
@@ -366,6 +365,7 @@ window.__ModuleLoader__.load({
       launchBlocked: '这条有阻断问题，处理前不能启动',
       refreshAllHint: '重新读取所有项目的分支、锁文件与警告',
       refreshAllBusy: '正在重新读取所有项目…',
+      refreshMissing: '这些项目目录不存在：{names}',
       actionsMore: '更多',
       launchScriptLoading: '正在读取脚本…',
       launchLog: '输出',
@@ -476,7 +476,7 @@ window.__ModuleLoader__.load({
 .ndv-head { display: flex; flex-direction: column; gap: 3px; }
 .ndv-head-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
 .ndv-head-sub { margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
-.ndv-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; overflow: auto; }
+.ndv-scroll { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; overflow: auto; scrollbar-width: thin; }
 .ndv-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-variant-numeric: tabular-nums; }
 .ndv-meta { font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .ndv-status { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border: 0.5px solid var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l1)); border-radius: var(--dsw-radius-xl, 12px); }
@@ -525,7 +525,7 @@ window.__ModuleLoader__.load({
 .ndv-notice[data-kind="error"] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent); background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent); }
 .ndv-warn { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border: 0.5px solid var(--dsw-alias-state-warn-primary); border-radius: var(--dsw-radius-xl, 12px); }
 .ndv-warn-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary)); }
-.ndv-footnote { flex: none; margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
+.ndv-footnote { flex: none; margin: auto 0 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .ndv-loading { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .ndv-spin { display: inline-block; flex: none; width: 11px; height: 11px; border: 1.5px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: ndv-spin 700ms linear infinite; }
 @keyframes ndv-spin {
@@ -1672,8 +1672,21 @@ window.__ModuleLoader__.load({
             headers: { 'content-type': 'application/json', accept: 'application/json' },
             body: '{}',
           })
-          if (outcome?.ok === true) setData({ status: 'ready', payload: outcome.state, error: null })
-          else setNotice({ kind: 'error', text: String(outcome?.message ?? '') })
+          if (outcome?.ok === true) {
+            setData({ status: 'ready', payload: outcome.state, error: null })
+            // A folder that is gone is the first thing to say, and by name.
+            const missing = Array.isArray(outcome.missing) ? outcome.missing : []
+            if (missing.length > 0) {
+              setNotice({
+                kind: 'error',
+                text: fill(t('refreshMissing'), {
+                  names: missing.map((item) => `${item.name}（${item.projectPath}）`).join('；'),
+                }),
+              })
+            }
+          } else {
+            setNotice({ kind: 'error', text: String(outcome?.message ?? '') })
+          }
         } catch (error) {
           setNotice({ kind: 'error', text: String(error?.message ?? error) })
         }
@@ -2082,12 +2095,7 @@ window.__ModuleLoader__.load({
         return h(React.Fragment, { key: entry.id },
           h('tr', { className: 'lch-trow', 'data-state': entry.status },
             h('td', null,
-              h('span', { className: 'lch-cell-name', title: entry.name },
-                entry.name,
-                typeof entry.priority !== 'number' || entry.priority === 1
-                  ? null
-                  : h('span', { className: 'lch-changes' }, ` · ${fill(t('launchPriorityChip'), { count: String(entry.priority) })}`),
-              ),
+              h('span', { className: 'lch-cell-name', title: entry.name }, entry.name),
             ),
             h('td', { className: 'lch-cell-cwd', title: entry.projectPath }, entry.projectPath),
             h('td', null,
@@ -2526,9 +2534,6 @@ window.__ModuleLoader__.load({
                     onChange: (event) => { setEntryBatch(entry, event.target.checked).catch(() => {}) },
                   }),
                   h('span', { className: 'lch-batch-name' }, entry.name),
-                  typeof entry.priority === 'number' && entry.priority !== 1
-                    ? h('span', { className: 'lch-changes' }, fill(t('launchPriorityChip'), { count: String(entry.priority) }))
-                    : null,
                 ),
                 h('span', { className: 'lch-batch-state', 'data-kind': state.kind }, state.text),
               )

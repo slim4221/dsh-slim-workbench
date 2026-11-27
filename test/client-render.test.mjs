@@ -232,8 +232,12 @@ test('an entry row draws its command, state, and actions', () => {
   assert.ok(text.includes('demo-web'))
   assert.ok(text.includes('pnpm run dev'))
   assert.ok(text.includes('192.168.1.10:5173'))
-  // The stored priority is shown, even though nothing orders by it.
-  assert.ok(text.some((line) => line.includes(dictionaries.en.launchPriorityChip.replace('{count}', '2'))))
+  // The stored priority is no longer drawn on the row (the field and its control stay).
+  assert.equal(
+    text.some((line) => line.startsWith('priority ')),
+    false,
+    'the row does not show a priority chip',
+  )
   // The actions a row offers, including the output view this version added.
   const actions = elementsWithClass(tree, 'lch-actions')
   assert.equal(actions.length, 1)

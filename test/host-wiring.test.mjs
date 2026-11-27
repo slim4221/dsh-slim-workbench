@@ -188,6 +188,7 @@ test('a saved entry comes back with its command and snapshot', async () => {
   assert.equal(refreshed.payload.ok, true)
   assert.equal(refreshed.payload.state.entries.length, 1)
   assert.ok(refreshed.payload.state.entries[0].inspectedAt !== null)
+  assert.deepEqual(refreshed.payload.missing, [], 'nothing is missing yet')
 
   // The panel no longer sends a priority: editing must keep the stored one, not reset it.
   const edited = await call('/slim-workbench/launch/save', {
@@ -250,6 +251,18 @@ test('a saved entry comes back with its command and snapshot', async () => {
   })
   assert.equal(toggled.payload.state.entries[0].batchEnabled, false)
 
+  // A project that was moved or deleted is reported by name, before anything else.
+  rmSync(project, { recursive: true, force: true })
+  const afterDelete = await call('/slim-workbench/launch/refresh-all', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  })
+  assert.equal(afterDelete.payload.ok, true)
+  assert.equal(afterDelete.payload.missing.length, 1)
+  assert.equal(afterDelete.payload.missing[0].name, 'demo-web-renamed')
+  assert.equal(afterDelete.payload.missing[0].projectPath, project)
+
   // Removing it leaves an empty list again.
   const removed = await call('/slim-workbench/launch/remove', {
     method: 'POST',
@@ -267,6 +280,28 @@ test('the status tool reports what the panel shows', async () => {
     () => tools.get('workbench_status').execute({ id: 'missing' }),
     /no launcher has the id missing/,
   )
+})
+
+test('the same folder may be added twice, for two scripts of one repo', async () => {
+  const project = path.join(home, 'mono')
+  mkdirSync(project, { recursive: true })
+  writeFileSync(path.join(project, 'package.json'), JSON.stringify({
+    name: 'mono',
+    scripts: { web: 'vite --config web', admin: 'vite --config admin' },
+  }), 'utf8')
+  const save = async (name, script) => call('/slim-workbench/launch/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, projectPath: project, stack: 'frontend', kind: 'script', pm: 'pnpm', script }),
+  })
+  const web = await save('mono-web', 'web')
+  const admin = await save('mono-admin', 'admin')
+  assert.equal(web.payload.ok, true)
+  assert.equal(admin.payload.ok, true)
+  const names = admin.payload.state.entries.map((entry) => entry.name).sort()
+  assert.deepEqual(names, ['mono-admin', 'mono-web'], 'one directory, two entries')
+  const commands = admin.payload.state.entries.map((entry) => entry.command).sort()
+  assert.deepEqual(commands, ['pnpm run admin', 'pnpm run web'], 'each entry keeps its own script')
 })
 
 test('a corrupt data file is treated as empty, not as a crash', async () => {
