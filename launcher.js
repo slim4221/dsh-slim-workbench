@@ -21,12 +21,17 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { JobKeeper } from './jail.js'
+
+/** The session's job keeper: one PowerShell process, one job per run. */
+const keeper = new JobKeeper()
 
 /**
  * On-disk file version, so a later layout change can migrate instead of guess.
- * 3 added the `nodeCache` section beside `entries`.
+ * 3 added the `nodeCache` section beside `entries`; 4 added `runs`, the records that let a
+ * restarted host recognise the processes it started before it died.
  */
-const FILE_VERSION = 3
+const FILE_VERSION = 4
 
 /** Output kept per run, in bytes. */
 const LOG_LIMIT = 64 * 1024
@@ -347,7 +352,7 @@ function normalizeEntry(raw, index) {
  * @returns {{ version: number, entries: Array<unknown>, nodeCache: object | null }} the document.
  */
 function readDocument() {
-  const empty = { version: FILE_VERSION, entries: [], nodeCache: null }
+  const empty = { version: FILE_VERSION, entries: [], nodeCache: null, runs: [] }
   const text = readText(dataFile())
   if (text === null) return empty
   let stored
@@ -361,6 +366,7 @@ function readDocument() {
     version: FILE_VERSION,
     entries: Array.isArray(source.entries) ? source.entries : [],
     nodeCache: source.nodeCache !== null && typeof source.nodeCache === 'object' ? source.nodeCache : null,
+    runs: Array.isArray(source.runs) ? source.runs.filter((record) => record !== null && typeof record === 'object') : [],
   }
 }
 
@@ -382,7 +388,12 @@ function readEntries() {
  */
 function writeDocument(document) {
   mkdirSync(dataDirectory(), { recursive: true })
-  const body = { version: FILE_VERSION, entries: document.entries, nodeCache: document.nodeCache ?? null }
+  const body = {
+    version: FILE_VERSION,
+    entries: document.entries,
+    nodeCache: document.nodeCache ?? null,
+    runs: document.runs ?? [],
+  }
   const text = `${JSON.stringify(body, null, 2)}\n`
   const temporary = `${dataFile()}.tmp`
   writeFileSync(temporary, text, 'utf8')
@@ -400,6 +411,24 @@ function writeDocument(document) {
 function writeEntries(entries) {
   writeDocument({ ...readDocument(), entries })
 }
+
+/**
+ * Whether a run still has live processes.
+ *
+ * A run started by this host has a child handle. A run adopted after a host restart has
+ * only a pid: the pipes are gone, but the processes are not, and the panel must still
+ * call it running and still offer Stop.
+ * @param {object | undefined} run the run record.
+ * @returns {boolean} true when something is still alive for it.
+ */
+function isRunLive(run) {
+  if (run === undefined || run === null) return false
+  return run.child !== null || (run.orphan === true && typeof run.pid === 'number')
+}
+
+
+/** How many projects are inspected at once by a refresh. */
+const INSPECT_CONCURRENCY = 4
 
 /** Tail of the mutation queue: writes are serialized so two callers cannot interleave. */
 let mutations = Promise.resolve()
@@ -655,7 +684,7 @@ function startReadinessWatch(run, port) {
  * @param {object} run the run to terminate.
  * @returns {Promise<void>} settles when the kill was attempted.
  */
-function terminate(run) {
+async function terminate(run) {
   const child = run.child
   const pid = run.pid
   if (run.readyTimer !== null) {
@@ -666,43 +695,54 @@ function terminate(run) {
   run.child = null
   run.endedAt = Date.now()
   appendLog(run.log, '\n[launcher] stopped\n')
-  if (child === null) return Promise.resolve()
+  // The job object is the only thing that reaches a process which detached itself; when it
+  // answers, the whole tree is already gone and walking one would be guesswork.
+  if (typeof pid === 'number' && await keeper.release(pid)) {
+    run.orphan = false
+    return
+  }
+  if (child === null && typeof pid !== 'number') return
   if (process.platform === 'win32') {
     if (typeof pid !== 'number') {
       try {
-        child.kill()
+        child?.kill()
       } catch {
         // Already gone: nothing left to signal.
       }
-      return Promise.resolve()
+      return
     }
-    return new Promise((resolve) => {
+    await new Promise((resolve) => {
       execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, () => { resolve() })
     })
+    return
   }
   if (typeof pid !== 'number') {
     try {
-      child.kill('SIGTERM')
+      child?.kill('SIGTERM')
     } catch {
       // Already gone.
     }
-    return Promise.resolve()
+    return
   }
   const signal = (name) => {
     try {
       process.kill(-pid, name)
     } catch {
       try {
-        child.kill(name)
+        child?.kill(name)
       } catch {
-        // Already gone.
+        // No child handle (an adopted run) and no process group: signal the pid itself.
+        try {
+          process.kill(pid, name)
+        } catch {
+          // Already gone.
+        }
       }
     }
   }
   signal('SIGTERM')
   const escalation = setTimeout(() => { signal('SIGKILL') }, 4000)
   if (typeof escalation.unref === 'function') escalation.unref()
-  return Promise.resolve()
 }
 
 /**
@@ -983,11 +1023,12 @@ function runView(entry) {
       changes,
     }
   }
-  const status = run.child !== null ? 'running' : run.stopped ? 'stopped' : 'exited'
+  const status = isRunLive(run) ? 'running' : run.stopped ? 'stopped' : 'exited'
   const phase = run.readyAt !== null ? 'ready' : status === 'running' ? 'starting' : status
   return {
     status,
     phase,
+    orphan: run.orphan === true,
     startedAt: run.startedAt,
     endedAt: run.endedAt,
     code: run.code,
@@ -1161,7 +1202,18 @@ export function readNodeCache() {
  */
 export function rememberNodeCache(state) {
   return serialize(async () => {
-    writeDocument({ ...readDocument(), nodeCache: state })
+    const document = readDocument()
+    const previous = document.nodeCache
+    // Only the substance decides whether to write: the read time changes on every read, and
+    // rewriting the user's file every time the panel opens is churn nobody asked for.
+    const substance = (value) => {
+      if (value === null || typeof value !== 'object') return null
+      const { readAt, ...rest } = value
+      void readAt
+      return JSON.stringify(rest)
+    }
+    if (previous !== null && substance(previous) === substance(state)) return
+    writeDocument({ ...document, nodeCache: state })
   })
 }
 
@@ -1183,6 +1235,159 @@ function legacyNodeCache() {
   } catch {
     return null
   }
+}
+
+/**
+ * Remember that this entry's process tree is running, so a host restart can recognise it.
+ *
+ * The record is a claim about the machine, not about this process: it holds the pid and the
+ * command line, which is what makes it possible to tell the process apart from an unrelated
+ * one that later reused the pid.
+ * @param {object} entry the entry.
+ * @param {object} run the run record.
+ * @returns {void}
+ */
+function rememberRunRecord(entry, run) {
+  const record = {
+    id: entry.id,
+    name: entry.name,
+    pid: typeof run.pid === 'number' ? run.pid : null,
+    startedAt: run.startedAt,
+    port: run.port ?? null,
+    command: commandOf(entry),
+  }
+  serialize(async () => {
+    const document = readDocument()
+    const next = document.runs.filter((existing) => existing.id !== entry.id)
+    next.push(record)
+    writeDocument({ ...document, runs: next })
+  }).catch(() => {
+    // Losing the record only costs the adoption after a crash; the run itself is fine.
+  })
+}
+
+/**
+ * Forget one entry's run record.
+ * @param {string} id entry id.
+ * @returns {void}
+ */
+function forgetRunRecord(id) {
+  serialize(async () => {
+    const document = readDocument()
+    const next = document.runs.filter((existing) => existing.id !== id)
+    if (next.length === document.runs.length) return
+    writeDocument({ ...document, runs: next })
+  }).catch(() => {
+    // Same: a stale record is corrected on the next start or reconcile.
+  })
+}
+
+/**
+ * Whether a pid is still there.
+ * @param {number} pid the process id.
+ * @returns {boolean} true when something answers to it.
+ */
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return error?.code === 'EPERM'
+  }
+}
+
+/**
+ * The command line of a running process, when the platform can tell us.
+ *
+ * This is what separates "the process I started" from "another process that now has the
+ * same pid": without it, adopting a record could stop something the user never started.
+ * @param {number} pid the process id.
+ * @returns {Promise<string | null>} the command line, or null when it cannot be read.
+ */
+async function processCommandLine(pid) {
+  if (process.platform === 'win32') {
+    const script = `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`
+    return new Promise((resolve) => {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+        { windowsHide: true, timeout: 8000 }, (error, stdout) => {
+          const text = error === null ? String(stdout).trim() : ''
+          resolve(text === '' ? null : text)
+        })
+    })
+  }
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Recognise the runs this host started before it died.
+ *
+ * A crash leaves child processes with no pipes attached to anything. The panel used to
+ * forget them: they kept holding their ports and could not be stopped from the UI. Each
+ * stored record is checked twice — is the pid alive, and is the command line still the one
+ * we recorded — before it is adopted, because a pid on its own proves nothing.
+ * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
+ * @returns {Promise<{ adopted: number, dropped: number }>} what the reconcile found.
+ */
+export async function adoptRuns(context) {
+  const records = readDocument().runs
+  if (records.length === 0) return { adopted: 0, dropped: 0 }
+  const entries = readEntries()
+  const kept = []
+  let adopted = 0
+  let dropped = 0
+  for (const record of records) {
+    const entry = entries.find((candidate) => candidate.id === record.id)
+    const pid = Number(record.pid)
+    if (entry === undefined || !isPidAlive(pid)) {
+      dropped += 1
+      continue
+    }
+    const command = await processCommandLine(pid)
+    const expected = typeof record.command === 'string' ? record.command : commandOf(entry)
+    if (command === null || !command.includes(expected.split(/\s+/)[0])) {
+      // Unreadable or a different program: do not claim a process we cannot prove is ours.
+      dropped += 1
+      continue
+    }
+    const port = typeof record.port === 'number' ? record.port : entry.port
+    const ready = typeof port === 'number' ? await probePort(port) : false
+    const lan = ready ? lanAddress() : null
+    runs.set(entry.id, {
+      child: null,
+      pid,
+      orphan: true,
+      startedAt: typeof record.startedAt === 'number' ? record.startedAt : Date.now(),
+      endedAt: null,
+      code: null,
+      stopped: false,
+      log: createLog(),
+      port: typeof port === 'number' ? port : null,
+      readyAt: ready ? Date.now() : null,
+      url: ready && typeof port === 'number' ? `http://localhost:${port}` : null,
+      lanUrl: ready && typeof port === 'number' && lan !== null ? `http://${lan}:${port}` : null,
+      actualNode: null,
+      readyTimer: null,
+      readyBudget: entry.stack === 'backend' ? READY_TIMEOUT_BACKEND_MS : READY_TIMEOUT_MS,
+    })
+    appendLog(runs.get(entry.id).log, `[launcher] adopted pid ${pid} from before this host started\n`)
+    // Jailing it now makes it ours again: one stop, and it dies with the next host too.
+    void keeper.jail(pid)
+    kept.push(record)
+    adopted += 1
+  }
+  if (kept.length !== records.length) {
+    await serialize(async () => {
+      const document = readDocument()
+      writeDocument({ ...document, runs: kept })
+    })
+  }
+  void context
+  return { adopted, dropped }
 }
 
 /**
@@ -1267,6 +1472,26 @@ export function saveEntry(input, context) {
 }
 
 /**
+ * Inspect entries a few at a time.
+ *
+ * Each inspection shells out to git, and a list of thirty projects would start thirty of
+ * them at once. Four at a time keeps the wall clock close to the parallel case without
+ * turning the machine's disk into the bottleneck.
+ * @param {Array<object>} entries the entries to inspect.
+ * @param {(entry: object) => Promise<unknown>} inspect one inspection.
+ * @returns {Promise<Array<unknown>>} the results, in the order given.
+ */
+async function inBatches(entries, inspect) {
+  const results = []
+  for (let start = 0; start < entries.length; start += INSPECT_CONCURRENCY) {
+    const slice = entries.slice(start, start + INSPECT_CONCURRENCY)
+    const done = await Promise.all(slice.map(async (entry) => inspect(entry)))
+    results.push(...done)
+  }
+  return results
+}
+
+/**
  * Re-inspect every entry's project and store the fresh snapshots in one write.
  *
  * The panel has one Refresh action instead of one per row: the list is read as a whole,
@@ -1285,7 +1510,7 @@ export function refreshAllEntries(context) {
   const missing = observed
     .filter((entry) => !isDirectory(entry.projectPath))
     .map((entry) => ({ id: entry.id, name: entry.name, projectPath: entry.projectPath }))
-  const stamped = Promise.all(observed.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]))
+  const stamped = inBatches(observed, async (entry) => [entry.id, await snapshotOf(entry, context, true)])
   return stamped.then((pairs) => serialize(async () => {
     // Re-read inside the queue: an entry removed while git was running must not come back.
     const current = readEntries()
@@ -1369,7 +1594,7 @@ export async function startEntry(input, context) {
   const entry = readEntries().find((candidate) => candidate.id === id)
   if (entry === undefined) return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
   const current = runs.get(id)
-  if (current !== undefined && current.child !== null) {
+  if (isRunLive(current)) {
     return { ok: false, code: 'already-running', message: `"${entry.name}" is already running` }
   }
   if (!isDirectory(entry.projectPath)) {
@@ -1456,6 +1681,14 @@ export async function startEntry(input, context) {
   runs.set(id, run)
   appendLog(run.log, `[launcher] ${command} in ${entry.projectPath}\n`)
   if (nodeDirectory !== null) appendLog(run.log, `[launcher] node from ${nodeDirectory}\n`)
+  // Put the tree in a job before it has time to fan out, and write the pid down: the job
+  // kills it if this host dies, the record lets the next host recognise it if the job did
+  // not exist (macOS, Linux, or a keeper that could not start).
+  rememberRunRecord(entry, run)
+  void keeper.jail(run.pid).then((jailed) => {
+    run.jailed = jailed
+    if (jailed) appendLog(run.log, `[launcher] job ${run.pid} holds the whole tree\n`)
+  })
 
   child.stdout?.setEncoding('utf8')
   child.stdout?.on('data', (chunk) => { onOutput(run, String(chunk)) })
@@ -1467,6 +1700,7 @@ export async function startEntry(input, context) {
     run.child = null
     run.endedAt = Date.now()
     run.code = -1
+    forgetRunRecord(id)
     if (run.readyTimer !== null) {
       clearInterval(run.readyTimer)
       run.readyTimer = null
@@ -1477,6 +1711,7 @@ export async function startEntry(input, context) {
     run.child = null
     run.endedAt = Date.now()
     run.code = code ?? -1
+    forgetRunRecord(id)
     if (run.readyTimer !== null) {
       clearInterval(run.readyTimer)
       run.readyTimer = null
@@ -1522,11 +1757,12 @@ export async function stopEntry(input, context) {
   const id = firstText(input?.id)
   if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
   const run = runs.get(id)
-  if (run === undefined || run.child === null) {
+  if (!isRunLive(run)) {
     return { ok: false, code: 'not-running', message: 'that launcher is not running' }
   }
   const port = run.port
   await terminate(run)
+  forgetRunRecord(id)
   // Forget the run entirely: a stopped entry reports no url, port, output, or Node
   // version — only what is stored on the entry itself.
   runs.delete(id)
@@ -1567,8 +1803,8 @@ export function readRunLog(id, lines = LOG_VIEW_LINES) {
   const wanted = Number.isFinite(lines) ? Math.min(LOG_VIEW_LINES_MAX, Math.max(1, Math.trunc(lines))) : LOG_VIEW_LINES
   const total = stripAnsi(run.log.chunks.join('')).split('\n').length
   return {
-    running: run.child !== null,
-    status: run.child !== null ? 'running' : run.stopped ? 'stopped' : 'exited',
+    running: isRunLive(run),
+    status: isRunLive(run) ? 'running' : run.stopped ? 'stopped' : 'exited',
     text: logLines(run.log, wanted, false),
     truncated: total > wanted,
   }
@@ -1583,10 +1819,21 @@ export function readRunLog(id, lines = LOG_VIEW_LINES) {
  */
 export function stopAll() {
   for (const run of runs.values()) {
-    if (run.child === null) continue
+    if (!isRunLive(run)) continue
     void terminate(run)
   }
   runs.clear()
+}
+
+/**
+ * Stop the job keeper for good, for plugin disposal.
+ *
+ * Closing its stdin closes every job it holds, which kills the trees a normal stop may have
+ * missed — the same mechanism that cleans up when this host dies without warning.
+ * @returns {Promise<void>} settles once it is gone.
+ */
+export function disposeKeeper() {
+  return keeper.dispose()
 }
 
 /**

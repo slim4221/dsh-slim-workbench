@@ -4,6 +4,10 @@ name: check
 # package still loads and still computes: the manifest parses, the loader patch names
 # this package, the locale metadata points at real files, every script parses, the two
 # dictionaries agree, and the parsing/validation rules still behave.
+#
+# Both platforms matter. The plugin is written for Windows (nvm-windows, taskkill, job
+# objects) and its process code has a POSIX half that only a Linux runner exercises: the
+# Windows-only tests skip themselves there, and the cross-platform ones run twice.
 on:
   push:
     branches: [main]
@@ -15,7 +19,11 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

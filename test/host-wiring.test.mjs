@@ -145,6 +145,14 @@ test('a successful read is remembered in the data file', async () => {
   assert.equal(typeof stored.nodeCache?.readAt, 'number')
   assert.ok(Array.isArray(stored.nodeCache?.versions))
   assert.deepEqual(stored.entries, [], 'the cache does not invent entries')
+
+  // Opening the panel again must not rewrite the file: the read time is not a reason to
+  // touch the user's data, so an unchanged list leaves the stored stamp alone.
+  const before = stored.nodeCache.readAt
+  await call('/slim-workbench/state')
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const again = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(again.nodeCache.readAt, before, 'an identical read is not rewritten')
 })
 
 test('a saved entry comes back with its command and snapshot', async () => {

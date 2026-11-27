@@ -244,6 +244,8 @@ window.__ModuleLoader__.load({
       batchParticipate: 'Include in batch start',
       batchParticipateHint: 'Uncheck to keep it out of the top-bar Batch start.',
       launchColProject: 'Project',
+      launchAdopted: 'adopted',
+      launchAdoptedHint: 'Started before this host; Stop still kills its whole process tree',
       launchColPath: 'Directory',
       launchColState: 'State',
       launchColBranch: 'Branch',
@@ -425,6 +427,8 @@ window.__ModuleLoader__.load({
       batchParticipate: '参与批量启动',
       batchParticipateHint: '取消勾选后，顶部「批量启动」不会启动它。',
       launchColProject: '项目',
+      launchAdopted: '接管',
+      launchAdoptedHint: '这是本次启动之前就在跑的进程；「停止」仍会杀掉整棵进程树',
       launchColPath: '项目地址',
       launchColState: '状态',
       launchColBranch: '分支',
@@ -549,7 +553,7 @@ window.__ModuleLoader__.load({
      * list rather than nesting a second scroll container.
      */
     const LAUNCH_STYLES = `
-.lch-table { table-layout: fixed; min-width: 1210px; }
+.lch-table { table-layout: fixed; width: max(100%, 1210px); }
 .lch-table th { position: sticky; top: 0; z-index: 1; padding-top: 8px; padding-bottom: 8px; background: var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1)); }
 /* Fixed widths, in pixels: a squeezed column is worse than a horizontal scrollbar. */
 .lch-table th:nth-child(1) { width: 190px; }
@@ -581,6 +585,8 @@ window.__ModuleLoader__.load({
 .lch-dim { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); }
 .lch-links { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .lch-state { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-variant-numeric: tabular-nums; }
+.lch-orphan { margin-left: 6px; padding: 0 5px; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-badge, var(--dsw-alias-bg-layer-2)); border-radius: var(--dsw-radius-sm, 4px); }
 .lch-state[data-state="running"] { color: var(--dsw-alias-state-success-primary); }
 .lch-state[data-state="exited"] { color: var(--dsw-alias-state-error-primary); }
 .lch-stage { display: flex; align-items: center; gap: 4px; max-width: 120px; }
@@ -739,11 +745,24 @@ window.__ModuleLoader__.load({
      * @param {RequestInit} init fetch options, including the abort signal.
      * @returns {Promise<any>} the decoded payload.
      */
+    /**
+     * The error `readJson` throws carries the body it could not use, so a caller that wants
+     * the payload of a failed request (the cached Node read, answered with 503) can have it.
+     * @param {unknown} error the rejection.
+     * @returns {Promise<object | null>} the parsed body, or null.
+     */
+    async function readJsonBody(error) {
+      const payload = error?.payload
+      return payload !== null && typeof payload === 'object' ? payload : null
+    }
+
     async function readJson(route, init) {
       const response = await fetch(route, { cache: 'no-store', ...init })
       const payload = await response.json().catch(() => null)
       if (!response.ok) {
-        throw new Error(typeof payload?.message === 'string' ? payload.message : `HTTP ${response.status}`)
+        const failure = new Error(typeof payload?.message === 'string' ? payload.message : `HTTP ${response.status}`)
+        failure.payload = payload
+        throw failure
       }
       return payload
     }
@@ -802,10 +821,17 @@ window.__ModuleLoader__.load({
             }
             setSnapshot({ phase: 'ready', state: payload, error: null })
           },
-          (error) => {
-            if (live && !controller.signal.aborted) {
-              setSnapshot({ phase: 'error', state: null, error: String(error?.message ?? error) })
+          async (error) => {
+            if (!live || controller.signal.aborted) return
+            // The Host answers 503 with the cached read; readJson treats that as a failure,
+            // so read the body it attached instead of dropping the fallback on the floor.
+            const body = await readJsonBody(error)
+            if (!live || controller.signal.aborted) return
+            if (body?.ok === false && body.cached !== undefined) {
+              setSnapshot({ phase: 'error', state: body.cached, error: String(body.message ?? '') })
+              return
             }
+            setSnapshot({ phase: 'error', state: null, error: String(error?.message ?? error) })
           },
         )
         return () => {
@@ -2100,6 +2126,9 @@ window.__ModuleLoader__.load({
             h('td', null,
               h('div', { className: 'lch-cell-state' },
                 h('span', { className: 'lch-state', 'data-state': entry.status }, statusText(entry)),
+                entry.orphan === true
+                  ? h('span', { className: 'lch-orphan', title: t('launchAdoptedHint') }, t('launchAdopted'))
+                  : null,
 
                 starting
                   ? h('div', { className: 'lch-stage' },

@@ -67,9 +67,17 @@ The project directory is read-only for this plugin. It reads `package.json`, loc
 `.git/index`, which is a file inside the project. It never writes, creates, renames, or deletes
 anything inside a project, never installs dependencies, never edits a lockfile or any project
 configuration, never runs a mutating git command, and never kills a process it did not start. It writes
-one file, `$DSH_HOME/slim-workbench/launchers.json`, with two sections: `entries` (your launchers) and
-`nodeCache` (the last Node read, kept only so a failed live read still has something to show). Deleting
-the cache section costs nothing but that fallback.
+one file, `$DSH_HOME/slim-workbench/launchers.json`, with three sections: `entries` (your launchers),
+`nodeCache` (the last Node read, kept only so a failed live read still has something to show), and `runs`
+(the pids of what is running, so a restarted host can recognise them). Deleting the cache section costs
+nothing but that fallback.
+
+Stopping reaches the whole tree. On Windows each run is put in a job object with
+`KILL_ON_JOB_CLOSE`, so a descendant that detached itself is still killed, and the tree dies with this
+host if the host dies; `taskkill /T` is the fallback when the job cannot be created. On POSIX the child
+leads its own process group. Should a process outlive the host anyway, the next start adopts it when
+**the pid is alive and its command line still matches the record** — the row shows an "adopted" tag and
+one Stop still kills the tree; a reused pid is never mistaken for ours.
 
 ## Data and moving machines
 

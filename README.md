@@ -40,13 +40,15 @@ dsh plugin --profile desktop add "git+https://github.com/slim4221/dsh-slim-workb
 - **不写、不新建、不改名、不删除**项目里的任何文件；不做 `install`，不改锁文件，不动项目配置
 - git 只跑两条只读命令：`git --no-optional-locks rev-parse --abbrev-ref HEAD` 与 `git --no-optional-locks status --porcelain`。
   `--no-optional-locks` 不是装饰：没有它，`git status` 在缓存过期时会**改写 `.git/index`**（那是项目里的文件），加上就一条字节都不动
-- 只停止它自己启动的进程树（Windows `taskkill /T`，POSIX 进程组信号）
-- 唯一的写入目标：`$DSH_HOME/slim-workbench/launchers.json`。一个文件两段：`entries` 是你的条目，`nodeCache` 是最后一次 Node 读取的快照（只为实时读取失败时还能显示上次结果，可随时删）
+- 只停止它自己启动的进程树；**Windows 上每个运行都在一个 job object 里**（`KILL_ON_JOB_CLOSE`），所以自己 detach 出去的孙进程也跑不掉，宿主崩了整棵树跟着死。job 用不上时退回 `taskkill /T`，POSIX 用进程组信号
+- 唯一的写入目标：`$DSH_HOME/slim-workbench/launchers.json`。一个文件三段：`entries` 是你的条目，`nodeCache` 是最后一次 Node 读取的快照（只为实时读取失败时还能显示上次结果），`runs` 是正在跑的进程记录（重启后用来认领它们）
 
 ## 数据 · Data
 
 条目保存在 `$DSH_HOME/slim-workbench/launchers.json`（Windows 为 `C:\Users\<你>\.dsh\slim-workbench\launchers.json`）。
 同一个文件里的 `nodeCache` 段保存 Node 管理最后一次成功读取的结果，所以实时读取失败时面板还能显示上次的列表（并标出那是哪一刻读的）。
+`runs` 段记下每个运行中条目的 pid、启动时间、端口与命令行：宿主被强杀后重启，面板按 **pid 还活着 + 命令行对得上** 两个条件认领它，
+显示为运行中并带「接管」角标，一次「停止」照样杀掉整棵树；pid 已被别的进程复用时不会被误认。
 
 - 里面只有：项目**绝对路径**、你选的命令条件、端口、是否参与批量、警告快照 —— 没有项目源码、没有密钥
 - 条目里的 `priority` **能填也能存**（只在新增/编辑弹窗里，列表不显示），但**目前没有消费方**：启动顺序不看它（逐个启动按列表顺序，同时启动没有顺序）。以后要接排序规则，已有的值直接可用
@@ -63,7 +65,8 @@ JSON（实测 3 ms），不会遍历项目目录，也不会反复调用 `git`�
 | | Windows | macOS / Linux |
 | --- | --- | --- |
 | 面板、表格、编辑、批量启动 | ✅ | ✅ |
-| 启动 / 停止（整棵进程树） | `taskkill /PID … /T /F` | 子进程自成进程组，`SIGTERM` → `SIGKILL` |
+| 启动 / 停止（整棵进程树） | job object（`KILL_ON_JOB_CLOSE`），失败退回 `taskkill /PID … /T /F` | 子进程自成进程组，`SIGTERM` → `SIGKILL` |
+| 宿主崩溃后 | 进程随 job 一起死；万一没死，重启后按 pid + 命令行认领，可停 | 只记录不认领（无 job object），重启后按 pid + 命令行认领 |
 | 按项目锁定 Node | nvm-windows 目录 | nvm / fnm / volta / asdf 的 `bin` 进该子进程 `PATH` |
 | 全机器切换 Node | ✅ `nvm use` | ❌ 版本属于 shell（`nvm alias default` / `fnm default`） |
 | 后端启动 | 需 JDK + Maven/Gradle | 同左 |
@@ -83,8 +86,9 @@ JSON（实测 3 ms），不会遍历项目目录，也不会反复调用 `git`�
 ## 开发 · Development
 
 ```bash
-npm run check   # 仓库自检：清单、patch、locale、字典对照、语法、导入接线、测试是否被点名
+npm run check   # 仓库自检：清单、patch、locale、字典对照、语法、导入接线、死 CSS、测试是否被点名
 npm test        # node --test：行为测试 + 渲染测试（node 18+）
+npm run visual  # 真浏览器里渲染面板并量列宽/冻结列（需要 Chrome，dev-only）
 ```
 
 自检覆盖的是「装得上、点得开」：BOM、行尾、包名与 patch 是否一致、`meta.detail` 是否指向真实文件、
@@ -94,6 +98,11 @@ npm test        # node --test：行为测试 + 渲染测试（node 18+）
 `validateEntry` 的每条拒绝理由、Maven/Gradle 包装器选择；用一套几十行的假 React（hooks 有状态、effect
 不执行）把三个面板真渲染一遍 —— 表格行、操作按钮、输出弹窗都是真渲染出来的；再把 Host 半挂到假上下文上
 跑一遍 —— 15 条路由与两个工具都注册了、非本机 Host 被 403、非 JSON 与超长 body 被挡住、存一条能取回来。
+还有两条只能靠真进程验的：**job object 杀掉已 detach 的孙进程**、**崩溃后按 pid + 命令行认领运行**（含"pid 被别的程序占用时不认领"）。
+`npm run visual` 补的是只能靠真浏览器验的那一半：把 `client.js` 原样在 Chrome 里渲染，量 8 列的实际宽度、行高、
+按钮有没有换行、横向滚动 260px 之后项目列与操作列是否仍然贴边 —— 窄窗口和宽窗口各跑一次。
+
+CI 在 **Windows 与 Linux** 两个 runner 上跑同一套（零依赖，所以没有安装步骤）。
 
 改完 `client.js` / `index.js` 后重启插件条目（Plugin Manager 里关掉再打开）即可，页面无需重载；
 仅改动 CSS 字符串时刷新页面即可。新加一个 `test/*.test.mjs` 记得同时加进 `package.json` 的 `test`

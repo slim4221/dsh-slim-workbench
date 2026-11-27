@@ -20,8 +20,8 @@
  */
 
 import {
-  inspectProject, migrateEntries, probePort, readLauncherState, readNodeCache, readRunLog, refreshAllEntries,
-  rememberNodeCache, removeEntry, saveEntry, setBatchEnabled, startEntry, stopAll, stopEntry,
+  adoptRuns, disposeKeeper, inspectProject, migrateEntries, probePort, readLauncherState, readNodeCache, readRunLog,
+  refreshAllEntries, rememberNodeCache, removeEntry, saveEntry, setBatchEnabled, startEntry, stopAll, stopEntry,
 } from './launcher.js'
 import {
   currentLinkedVersion, describeState, installedVersions, installInfo, installVersion, readReleases, readState,
@@ -421,9 +421,22 @@ export function apply(ctx, config) {
   ctx.effect(() => {
     const migration = migrateEntries(launcher()).catch(() => 0)
     void migration
-  }, 'slim-workbench: snapshot migration')
-  // A dev server the user started must not outlive the plugin that reports it.
-  ctx.effect(() => () => { stopAll() }, 'slim-workbench: launcher runs')
+    // Runs from before this host started: a crash leaves processes with no pipes attached.
+    // Adoption gives the panel a row it can stop instead of a dead port it cannot explain.
+    const adoption = adoptRuns(launcher()).catch(() => ({ adopted: 0, dropped: 0 }))
+    void adoption.then((result) => {
+      if (result.adopted > 0) {
+        void ctx.logger?.info?.(`slim-workbench: adopted ${result.adopted} run(s) from before this host started`)
+      }
+    })
+  }, 'slim-workbench: snapshot migration and run adoption')
+  // A dev server the user started must not outlive the plugin that reports it. Closing the
+  // keeper is the last line: its jobs die with it even if a stop never got the chance.
+  ctx.effect(() => () => {
+    stopAll()
+    void disposeKeeper()
+  }, 'slim-workbench: launcher runs')
+
   ctx.inject(['webServer'], (hostCtx) => {
     const reject = requestGateOf(ctx)
 
@@ -449,7 +462,17 @@ export function apply(ctx, config) {
             return
           }
           try {
-            sendJson(response, 200, await load(request))
+            // A handler may answer with its own status when "ok" is not 200: the Node read
+            // answers 503 with the cached payload, so the failure is visible to anything that
+            // looks at the status line and not just at the body.
+            const result = await load(request)
+            if (result !== null && typeof result === 'object' && Number.isInteger(result.status)
+              && result.payload !== undefined) {
+              sendJson(response, result.status, result.payload)
+              return
+            }
+            sendJson(response, 200, result)
+
           } catch (error) {
             sendJson(response, 500, { ok: false, message: error instanceof Error ? error.message : String(error) })
           }
@@ -532,10 +555,13 @@ export function apply(ctx, config) {
         // A live read that fails still has an answer worth showing: the last one, with the
         // moment it was read, so "更新时间" is visibly old rather than pretending to be now.
         return {
-          ok: false,
-          code: 'state-failed',
-          message: error instanceof Error ? error.message : String(error),
-          cached: readNodeCache(),
+          status: 503,
+          payload: {
+            ok: false,
+            code: 'state-failed',
+            message: error instanceof Error ? error.message : String(error),
+            cached: readNodeCache(),
+          },
         }
       }
     })
