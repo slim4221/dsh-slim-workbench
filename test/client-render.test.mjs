@@ -8,7 +8,6 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { pathToFileURL } from 'node:url'
 
 /** Hook state and refs, keyed by the component function that owns them. */
 const stores = new Map()
@@ -116,7 +115,8 @@ function elementsWithClass(node, name) {
 // The module expects the shell's loader and React; both are supplied here.
 let registered = null
 globalThis.window = { __ModuleLoader__: { load: (definition) => { registered = definition } } }
-await import(pathToFileURL(new URL('../client.js', import.meta.url).pathname.slice(1)).href)
+// A URL, not a path: this has to resolve the same way on Windows and on CI's Linux.
+await import(new URL('../client.js', import.meta.url).href)
 
 const plugin = registered.factory((name) => {
   if (name === 'react') return React
