@@ -20,8 +20,8 @@
  */
 
 import {
-  inspectProject, probePort, readLauncherState, refreshEntry, removeEntry, saveEntry, setBatchEnabled, startEntry,
-  stopAll, stopEntry,
+  inspectProject, migrateEntries, probePort, readLauncherState, readRunLog, refreshEntry, removeEntry, saveEntry,
+  setBatchEnabled, startEntry, stopAll, stopEntry,
 } from './launcher.js'
 import {
   currentLinkedVersion, describeState, installedVersions, installInfo, installVersion, readReleases, readState,
@@ -45,12 +45,17 @@ const ROUTE_LAUNCH_INSPECT = '/slim-workbench/launch/inspect'
 const ROUTE_LAUNCH_PROBE = '/slim-workbench/launch/probe'
 const ROUTE_LAUNCH_REFRESH = '/slim-workbench/launch/refresh'
 const ROUTE_LAUNCH_BATCH_ENABLED = '/slim-workbench/launch/batch-enabled'
+const ROUTE_LAUNCH_LOG = '/slim-workbench/launch/log'
 
 /** Request bodies are one small JSON object; anything larger is hostile. */
 const MAX_BODY_BYTES = 8 * 1024
 
 /** How many released versions the tool's text summary lists. */
 const RELEASES_IN_SUMMARY = 20
+
+/** How many output lines the status tool shows per run, and the ceiling it accepts. */
+const STATUS_LINES = 8
+const STATUS_LINES_MAX = 60
 
 /** The tool registry, and nothing optional: the routes wait for `webServer` instead. */
 export const inject = ['tools']
@@ -247,7 +252,9 @@ function nodeVersionTool(api, actions) {
     description: 'Manage the machine-wide Node.js version nvm-windows links. Actions: "list" reads installed and current '
       + 'versions; "releases" lists the released versions that have a Windows build; "use" switches to an installed '
       + 'version; "install" downloads and installs a released version; "uninstall" removes an installed version that is '
-      + 'not the one in use. A switch affects new processes only; already-running programs keep the version they started with.',
+      + 'not the one in use. A switch affects new processes only; already-running programs keep the version they started '
+      + 'with. Every action except "list"/"releases" changes this machine for all users of it, so only run one when the '
+      + 'user asked for it by name.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -292,7 +299,94 @@ function nodeVersionTool(api, actions) {
 }
 
 /**
- * Register the routes and the tool.
+ * Render the workbench for an agent: what is configured, what is running, why something
+ * refuses to start, and the last lines a run printed.
+ *
+ * Read-only on purpose. The panel can start and stop commands; the model cannot, and
+ * this is what lets it still answer "why did my dev server die" without that power.
+ * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
+ * @param {{ id?: unknown, lines?: unknown }} input the tool arguments.
+ * @returns {Promise<string>} the human-readable report.
+ */
+async function describeWorkbench(context, input) {
+  const id = typeof input.id === 'string' && input.id.trim() !== '' ? input.id.trim() : undefined
+  const requested = typeof input.lines === 'number' && Number.isFinite(input.lines) ? Math.trunc(input.lines) : STATUS_LINES
+  const lines = Math.min(STATUS_LINES_MAX, Math.max(1, requested))
+  const state = await readLauncherState(context)
+  const entries = id === undefined ? state.entries : state.entries.filter((entry) => entry.id === id)
+  if (id !== undefined && entries.length === 0) throw new Error(`no launcher has the id ${id}`)
+
+  const header = [
+    `Slim workbench · ${state.entries.length} launcher(s) · data ${state.dataFile}`,
+    state.currentVersion === null || state.currentVersion === undefined
+      ? 'Machine Node.js: not linked'
+      : `Machine Node.js: v${state.currentVersion}`,
+  ]
+  if (entries.length === 0) return [...header, 'No launcher is configured yet.'].join('\n')
+
+  const blocks = entries.map((entry) => {
+    const phase = entry.status === 'running'
+      ? (entry.phase === 'ready' ? 'running (port answers)' : 'running (starting)')
+      : entry.status === 'exited' ? `exited (${entry.code ?? '?'})` : 'stopped'
+    const facts = [
+      `${entry.name} · ${entry.stack} · ${phase}`,
+      `  directory: ${entry.projectPath}`,
+      `  command: ${entry.command === '' ? '(none)' : entry.command}`,
+    ]
+    const port = entry.runPort ?? entry.port
+    if (port !== null && port !== undefined) facts.push(`  port: ${port}${entry.lanUrl === null || entry.lanUrl === undefined ? '' : ` · ${entry.lanUrl}`}`)
+    if (entry.branch !== null && entry.branch !== undefined) facts.push(`  branch: ${entry.branch}${entry.changes === null || entry.changes === undefined ? '' : ` (${entry.changes} changed)`}`)
+    if (entry.actualNode !== null && entry.actualNode !== undefined) facts.push(`  node in effect: v${entry.actualNode}`)
+    for (const warning of Array.isArray(entry.warnings) ? entry.warnings : []) {
+      facts.push(`  ${warning.level === 'block' ? 'BLOCKED' : warning.level}: ${warning.text}`)
+    }
+    const log = readRunLog(entry.id, lines)
+    if (log !== null && log.text !== '') {
+      facts.push(`  last ${Math.min(lines, log.text.split('\n').length)} output line(s):`)
+      for (const line of log.text.split('\n')) facts.push(`    ${line}`)
+    }
+    return facts.join('\n')
+  })
+  return [...header, '', blocks.join('\n\n')].join('\n')
+}
+
+/**
+ * The model-facing read-only view of the launcher.
+ * @param {{ describe: (input: object) => Promise<string> }} api the shared read.
+ * @returns {object} a registry-ready tool definition.
+ */
+function workbenchStatusTool(api) {
+  return {
+    name: 'workbench_status',
+    description: 'Read the Slim workbench launcher list: which projects this machine has configured, whether each one is '
+      + 'running, its port and LAN URL, its branch, the warnings the panel shows, and the last lines of output a run '
+      + 'printed. Read-only — it never starts, stops, or edits a launcher: starting a dev server stays a user action.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', description: 'One launcher id. Omit it to report every entry.' },
+        lines: { type: 'integer', description: `Output lines per run, 1-${STATUS_LINES_MAX}. Defaults to ${STATUS_LINES}.` },
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['summary'],
+        properties: { summary: { type: 'string' } },
+      },
+      render: (_args, value) => [{ type: 'text', text: String(value?.summary ?? '') }],
+    },
+    async execute(args) {
+      const input = args !== null && typeof args === 'object' ? args : {}
+      return { summary: await api.describe(input) }
+    },
+  }
+}
+
+/**
+ * Register the routes and the tools.
  * @param {object} ctx the plugin context.
  * @param {unknown} config the row's config mapping.
  * @returns {void}
@@ -318,6 +412,16 @@ export function apply(ctx, config) {
     },
   })
   ctx.effect(() => ctx.tools.register(nodeVersionTool(reads, actions)), 'slim-workbench: node_version tool')
+  ctx.effect(
+    () => ctx.tools.register(workbenchStatusTool({ describe: (input) => describeWorkbench(launcher(), input) })),
+    'slim-workbench: workbench_status tool',
+  )
+  // Stamping entries written before snapshots existed is a write, so it happens once
+  // here rather than inside the GET that reads the list.
+  ctx.effect(() => {
+    const migration = migrateEntries(launcher()).catch(() => 0)
+    void migration
+  }, 'slim-workbench: snapshot migration')
   // A dev server the user started must not outlive the plugin that reports it.
   ctx.effect(() => () => { stopAll() }, 'slim-workbench: launcher runs')
   ctx.inject(['webServer'], (hostCtx) => {
@@ -432,6 +536,16 @@ export function apply(ctx, config) {
         return { ok: false, code: 'invalid-port', message: 'port must be 1-65535' }
       }
       return { ok: true, port, inUse: await probePort(port) }
+    })
+    getRoute(ROUTE_LAUNCH_LOG, async (request) => {
+      const id = queryId(request)
+      if (id === undefined) return { ok: false, code: 'invalid-id', message: 'id is required' }
+      const parsed = Number.parseInt(String(queryParam(request, 'lines') ?? ''), 10)
+      const log = readRunLog(id, Number.isInteger(parsed) ? parsed : undefined)
+      if (log === null) {
+        return { ok: false, code: 'no-run', message: 'this entry has not run since the plugin started' }
+      }
+      return { ok: true, id, ...log }
     })
     postRoute(ROUTE_LAUNCH_SAVE, async (body) => saveEntry(body, launcher()))
     postRoute(ROUTE_LAUNCH_REFRESH, async (body) => refreshEntry(body, launcher()))

@@ -467,6 +467,16 @@ export async function readReleases() {
  * @returns {string} the human-readable summary.
  */
 export function describeState(state) {
+  if (state.supported === false) {
+    // No machine-wide link exists here: a version belongs to a shell, and saying
+    // "nvm.exe was not found" would send a macOS user looking for a Windows tool.
+    const found = Array.isArray(state.versions) ? state.versions.length : 0
+    return `Machine-wide switching is unavailable on ${String(state.platform)}: there a Node.js version belongs to a `
+      + 'shell (nvm alias default / fnm default / volta pin). '
+      + (found === 0
+        ? 'No installed version was found either.'
+        : `${found} installed version(s) were found; launcher entries can pin one each.`)
+  }
   if (!state.available) {
     return `nvm-windows was not found: no nvm.exe in ${state.checked.join(', ')}. `
       + 'Install nvm-windows, or set `nvmHome`/`nvmExe` in this plugin\'s configuration.'
@@ -664,3 +674,11 @@ export function versionDirectory(version, overrides = {}) {
   }
   return { directory: '', exists: false }
 }
+
+/**
+ * The pure helpers, for the test suite only.
+ *
+ * Nothing in the plugin reads this object; it exists so `test/` can check the version
+ * ordering that decides which release the panel calls "newest".
+ */
+export const internals = { compareVersions, sortSerials }

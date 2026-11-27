@@ -331,6 +331,18 @@ async function checkDictionaries() {
   return problems
 }
 
+// 11. Every test file must be named by `npm test`. A new test/ file that no script runs
+//     passes on the author's machine and is never seen by CI or by the next person.
+const testScript = String(manifest?.scripts?.test ?? '')
+const testFiles = files.filter((candidate) => /[\\/]test[\\/][^\\/]+\.test\.mjs$/.test(candidate))
+if (testFiles.length > 0 && testScript === '') {
+  fail('package.json: there are test files but no "test" script')
+}
+for (const file of testFiles) {
+  const label = relative(root, file).replace(/\\/g, '/')
+  if (!testScript.includes(label)) fail(`package.json: the "test" script does not run ${label}`)
+}
+
 if (notes.length > 0) console.log(`note:\n  ${notes.join('\n  ')}`)
 
 if (failures.length === 0) {

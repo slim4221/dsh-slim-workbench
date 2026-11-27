@@ -26,8 +26,13 @@ window.__ModuleLoader__.load({
     const NS = 'slim-workbench'
     /** Workbench panel id: the sidebar icon's id and the main panel's key. */
     const WORKBENCH_ID = 'workbench'
-    /** How long one batch-started entry may take to answer on its port. */
+    /** Output lines the log view asks the Host for, and how often it re-reads them. */
+    const LOG_VIEW_LINES = 200
+    const LOG_POLL_MS = 1500
+    /** How long one batch-started entry may take to answer on its port, per stack. */
     const BATCH_READY_TIMEOUT_MS = 3 * 60 * 1000
+    /** A backend entry builds before it listens, so the Host waits longer for it. */
+    const BATCH_READY_TIMEOUT_BACKEND_MS = 5 * 60 * 1000
     /** Host routes (document-relative, as the shell serves its own routes). */
     const ROUTES = {
       state: 'slim-workbench/state',
@@ -44,6 +49,7 @@ window.__ModuleLoader__.load({
       launchBatchEnabled: 'slim-workbench/launch/batch-enabled',
       launchInspect: 'slim-workbench/launch/inspect',
       launchProbe: 'slim-workbench/launch/probe',
+      launchLog: 'slim-workbench/launch/log',
     }
 
     /** The client context of this plugin's activation; set by `apply`. */
@@ -176,6 +182,12 @@ window.__ModuleLoader__.load({
       launchRefresh: 'Refresh',
       launchRefreshing: 'Refreshing…',
       launchRefreshHint: 'Re-read branch, lockfile, and scripts of this project',
+      launchLog: 'Output',
+      launchLogTitle: 'Output — {name}',
+      launchLogEmpty: 'This run has not printed anything yet.',
+      launchLogNoRun: 'This entry has not run since the plugin started.',
+      launchLogHint: 'Only what this run printed; colour codes are stripped. It refreshes while the panel is open.',
+      launchLogTruncated: 'Showing the last {count} lines.',
       removeTitle: 'Delete this launcher?',
       removeConfirm: 'Delete "{name}".',
       removeConfirmHint: 'Only the record in launchers.json is removed. The project directory is not touched.',
@@ -340,6 +352,12 @@ window.__ModuleLoader__.load({
       launchRefresh: '更新',
       launchRefreshing: '更新中…',
       launchRefreshHint: '重新读取这个项目的分支、锁文件与脚本',
+      launchLog: '输出',
+      launchLogTitle: '输出 — {name}',
+      launchLogEmpty: '这次运行还没有打印任何内容。',
+      launchLogNoRun: '插件启动以来，这一条还没运行过。',
+      launchLogHint: '只有这次运行打印的内容；颜色控制码已剥离。面板打开时会持续刷新。',
+      launchLogTruncated: '只显示最后 {count} 行。',
       removeTitle: '删除这个启动项？',
       removeConfirm: '确定删除「{name}」。',
       removeConfirmHint: '只删除 launchers.json 里的这条记录，不会改动项目目录。',
@@ -562,7 +580,8 @@ window.__ModuleLoader__.load({
   .lch-danger-solid:hover:not(:disabled) { background: var(--dsw-alias-state-error-primary); filter: brightness(1.08); }
 }
 .lch-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 28px; background: color-mix(in srgb, var(--dsw-alias-bg-base, #000000) 45%, transparent); backdrop-filter: blur(2px); }
-.lch-modal { display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; width: min(560px, 100%); max-height: min(82vh, 760px); padding: 20px; overflow: auto; border-radius: var(--dsw-radius-xl, 12px); background: var(--dsw-alias-bg-layer-1, #ffffff); box-shadow: var(--dsw-elevation-prominent, 0 12px 32px rgba(0, 0, 0, 0.18)); --dsw-elevation-stroke-color: var(--dsw-alias-border-l1); --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2); }
+.lch-modal { display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; width: min(560px, 100%); max-height: min(82vh, 760px); padding: 20px; overflow: auto; border-radius: var(--dsw-radius-xl, 12px); background: var(--dsw-alias-bg-layer-1, #ffffff); box-shadow: var(--dsw-elevation-prominent, 0 12px 32px rgba(0, 0, 0, 0.18)); --dsw-elevation-stroke-color: var(--dsw-alias-border-l1); --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2, var(--dsw-alias-border-l2)); }
+.lch-log { margin: 0; padding: 10px 12px; max-height: min(52vh, 520px); overflow: auto; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 11.5px; line-height: 17px; white-space: pre-wrap; word-break: break-word; }
 .lch-confirm-text { margin: 0; font-size: 14px; line-height: 22px; color: var(--dsw-alias-label-primary); }
 .lch-confirm-path { margin: 0; overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 11.5px; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); text-overflow: ellipsis; white-space: nowrap; }
 .lch-modal-head { display: flex; align-items: center; gap: 8px; }
@@ -1151,11 +1170,74 @@ window.__ModuleLoader__.load({
       }, [confirmOpen])
 
       const [insp, setInsp] = React.useState({ status: 'idle', facts: null, error: null })
+      // The entry whose output is open, and what the Host last answered for it.
+      const [logTarget, setLogTarget] = React.useState(null)
+      const [logView, setLogView] = React.useState(null)
+      const logOpen = logTarget !== null
       // Batch start: which entries were picked, and how far the run got.
       const [batchOpen, setBatchOpen] = React.useState(false)
       const [batchRun, setBatchRun] = React.useState(null)
       const batchCancel = React.useRef(false)
       const fieldRef = React.useRef(null)
+
+      // Read the run's output, and keep re-reading it while that run is alive: a dev
+      // server's useful lines arrive after the panel has already drawn the table.
+      React.useEffect(() => {
+        if (!logOpen) return undefined
+        const id = logTarget.id
+        const controller = new AbortController()
+        let live = true
+        setLogView({ status: 'loading', text: '', truncated: false, error: null })
+        const load = () => {
+          const route = `${ROUTES.launchLog}?id=${encodeURIComponent(id)}&lines=${LOG_VIEW_LINES}`
+          readJson(route, { headers: { accept: 'application/json' }, signal: controller.signal }).then(
+            (payload) => {
+              if (!live) return
+              if (payload?.ok === true) {
+                setLogView({
+                  status: 'ready',
+                  text: String(payload.text ?? ''),
+                  truncated: payload.truncated === true,
+                  running: payload.running === true,
+                  error: null,
+                })
+                return
+              }
+              // "No run in this process" is an answer, not a failure: say so plainly.
+              setLogView({
+                status: payload?.code === 'no-run' ? 'norun' : 'error',
+                text: '',
+                truncated: false,
+                error: String(payload?.message ?? ''),
+              })
+            },
+            (error) => {
+              if (live && !controller.signal.aborted) {
+                setLogView({ status: 'error', text: '', truncated: false, error: String(error?.message ?? error) })
+              }
+            },
+          )
+        }
+        load()
+        const timer = setInterval(load, LOG_POLL_MS)
+        return () => {
+          live = false
+          clearInterval(timer)
+          controller.abort()
+        }
+      }, [logOpen, logTarget?.id])
+
+      // Escape closes the log view, like the editor and the delete confirmation.
+      React.useEffect(() => {
+        if (!logOpen) return undefined
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return
+          event.stopPropagation()
+          setLogTarget(null)
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        return () => { document.removeEventListener('keydown', onKeyDown, true) }
+      }, [logOpen])
 
       // Focus the first field when the editor opens, and let Escape close it.
       const editorOpen = form !== null
@@ -1441,6 +1523,14 @@ window.__ModuleLoader__.load({
             'aria-label': `${t('launchRefresh')} ${entry.name}`,
             onClick: () => { act('refresh', entry).catch(() => {}) },
           }, working === 'refresh' ? t('launchRefreshing') : t('launchRefresh')),
+          h('button', {
+            key: 'log',
+            type: 'button',
+            className: 'ndv-button',
+            title: t('launchLogHint'),
+            'aria-label': `${t('launchLog')} ${entry.name}`,
+            onClick: () => { setLogTarget(entry) },
+          }, t('launchLog')),
           h('button', {
             key: 'edit',
             type: 'button',
@@ -1788,7 +1878,7 @@ window.__ModuleLoader__.load({
                 ? entry.branch
                 : h('span', { className: 'lch-dim' }, '—'),
             ),
-            h('td', { className: 'lch-cell-mono lch-ellipsis', title: String(entry.command ?? '') }, String(entry.command ?? '')),
+            h('td', { className: 'lch-cell-mono', title: String(entry.command ?? '') }, String(entry.command ?? '')),
             h('td', { className: 'lch-cell-mono' },
               stack === 'backend'
                 ? (entry.profile === null || entry.profile === undefined
@@ -1871,7 +1961,10 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Open the batch dialog with every idle entry preselected.
+       * Open the batch dialog with the entries the stored flags currently include.
+       *
+       * The checkboxes are the persisted participation flag, not a scratch selection:
+       * what the dialog shows is what the next batch start will use.
        * @returns {void}
        */
       function openBatch() {
@@ -1935,12 +2028,14 @@ window.__ModuleLoader__.load({
        *
        * A dev server is "up" when its port accepts a connection; starting the next
        * project earlier would race against it (the SSO case: the others log in
-       * through it, so it has to be listening first).
+       * through it, so it has to be listening first). The budget follows the stack:
+       * a backend entry compiles before it listens, and the Host waits longer for it.
        * @param {string} id the entry.
+       * @param {number} budget how long this entry may take, in milliseconds.
        * @returns {Promise<string>} `ready`, `cancelled`, `missing`, `timeout`, or `failed:<tail>`.
        */
-      async function waitForReady(id) {
-        const deadline = Date.now() + BATCH_READY_TIMEOUT_MS
+      async function waitForReady(id, budget) {
+        const deadline = Date.now() + budget
         while (Date.now() < deadline) {
           if (batchCancel.current) return 'cancelled'
           const payload = await readJson(ROUTES.launchState, { headers: { accept: 'application/json' } })
@@ -1991,7 +2086,10 @@ window.__ModuleLoader__.load({
             publish('failed', index)
             return
           }
-          const waited = await waitForReady(entry.id)
+          const waited = await waitForReady(
+            entry.id,
+            entry.stack === 'backend' ? BATCH_READY_TIMEOUT_BACKEND_MS : BATCH_READY_TIMEOUT_MS,
+          )
           if (waited === 'ready') {
             results[entry.id] = 'ready'
             publish('running', index + 1)
@@ -2117,6 +2215,63 @@ window.__ModuleLoader__.load({
                 ? t('batchCancelledHint')
                 : t('batchStoppedHint')),
             h('div', { className: 'lch-form-actions' }, footer),
+          ),
+        )
+      }
+
+      /**
+       * One run's output, in a dialog over the pane.
+       *
+       * The row only ever shows the last line, because a table cell is one line high;
+       * this is where the buffered output becomes readable. Nothing is stored: a run
+       * that this process never started simply has no log to show.
+       * @returns {object} the overlay element.
+       */
+      function logModal() {
+        const entry = logTarget
+        const view = logView
+        const body = view === null || view.status === 'loading'
+          ? h('p', { className: 'lch-hint' }, t('launchLoading'))
+          : view.status === 'norun'
+            ? h('p', { className: 'lch-hint' }, t('launchLogNoRun'))
+            : view.status === 'error'
+              ? h('p', { className: 'lch-hint', 'data-kind': 'error' }, view.error)
+              : h('pre', { className: 'lch-log' }, view.text === '' ? t('launchLogEmpty') : view.text)
+        return h('div', {
+          className: 'lch-modal-backdrop',
+          onMouseDown: (event) => {
+            if (event.target === event.currentTarget) setLogTarget(null)
+          },
+        },
+          h('div', {
+            className: 'lch-modal lch-modal--wide',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': fill(t('launchLogTitle'), { name: entry.name }),
+          },
+            h('div', { className: 'lch-modal-head' },
+              h('h3', { className: 'lch-modal-title' }, fill(t('launchLogTitle'), { name: entry.name })),
+              h('button', {
+                type: 'button',
+                className: 'lch-modal-close',
+                'aria-label': t('launchCancel'),
+                title: t('launchCancel'),
+                onClick: () => { setLogTarget(null) },
+              }, '\u2715'),
+            ),
+            body,
+            h('p', { className: 'lch-hint' },
+              t('launchLogHint'),
+              view !== null && view.truncated === true
+                ? ' ' + fill(t('launchLogTruncated'), { count: String(LOG_VIEW_LINES) })
+                : null),
+            h('div', { className: 'lch-form-actions' },
+              h('button', {
+                type: 'button',
+                className: 'ndv-button lch-primary',
+                onClick: () => { setLogTarget(null) },
+              }, t('launchCancel')),
+            ),
           ),
         )
       }
@@ -2269,6 +2424,7 @@ window.__ModuleLoader__.load({
         form === null ? null : formModal(),
         batchOpen ? batchModal() : null,
         removeTarget === null ? null : removeModal(),
+        logTarget === null ? null : logModal(),
         h('p', { className: 'ndv-footnote lch-footer' },
           h('span', null, t('launchNote')),
           typeof data.payload?.dataFile === 'string' && data.payload.dataFile !== ''

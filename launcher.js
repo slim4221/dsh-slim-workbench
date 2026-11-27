@@ -15,7 +15,7 @@
  * resolves bare imports from its own directory, where no Harness package exists.
  */
 
-import { execFile, execFileSync, spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import net from 'node:net'
@@ -30,6 +30,10 @@ const LOG_LIMIT = 64 * 1024
 
 /** The one output line returned inline with the state, for a run's row. */
 const TAIL_LINES = 1
+
+/** How many output lines the log view returns, and the ceiling a request may ask for. */
+const LOG_VIEW_LINES = 200
+const LOG_VIEW_LINES_MAX = 1000
 
 /** Entry field limits. */
 const NAME_LIMIT = 60
@@ -97,6 +101,34 @@ function firstText(...values) {
 }
 
 /**
+ * Run one command and settle with its outcome instead of rejecting.
+ *
+ * Asynchronous on purpose: `git status` on a large or network-backed checkout takes
+ * seconds, and a synchronous call would stall this Host — and every request and tool
+ * call sharing it — for that whole time.
+ * @param {string} executable command name or absolute path.
+ * @param {readonly string[]} args arguments, never shell-interpolated.
+ * @param {{ cwd?: string, timeout?: number }} options working directory and deadline.
+ * @returns {Promise<{ ok: boolean, output: string }>} outcome and combined text.
+ */
+function run(executable, args, options = {}) {
+  return new Promise((resolve) => {
+    execFile(
+      executable,
+      [...args],
+      { cwd: options.cwd, timeout: options.timeout ?? 10_000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      (error, stdout, stderr) => {
+        const text = [String(stdout ?? ''), String(stderr ?? '')]
+          .map((part) => part.trim())
+          .filter((part) => part !== '')
+          .join('\n')
+        resolve({ ok: error === null || error === undefined, output: text })
+      },
+    )
+  })
+}
+
+/**
  * Read a file as text without throwing.
  *
  * A leading byte-order mark is stripped: editors and PowerShell's `Set-Content`
@@ -161,18 +193,18 @@ function detectLockfile(directory) {
 /**
  * Read one project's git facts, read-only.
  * @param {string} directory project directory.
- * @returns {{ branch: string | null, changes: number | null, error: string | null }} the facts.
+ * @returns {Promise<{ branch: string | null, changes: number | null, error: string | null }>} the facts.
  */
-function readGit(directory) {
-  const options = { cwd: directory, windowsHide: true, timeout: 5000, encoding: 'utf8' }
-  try {
-    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], options).trim()
-    const status = execFileSync('git', ['status', '--porcelain'], options)
-    const changes = status.split(/\r?\n/).filter((line) => line.trim() !== '').length
-    return { branch: branch === '' ? null : branch, changes, error: null }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return { branch: null, changes: null, error: message }
+async function readGit(directory) {
+  const options = { cwd: directory, timeout: 5000 }
+  const head = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], options)
+  if (!head.ok) return { branch: null, changes: null, error: head.output === '' ? 'git rev-parse failed' : head.output }
+  const status = await run('git', ['status', '--porcelain'], options)
+  const branch = head.output.split(/\r?\n/)[0].trim()
+  return {
+    branch: branch === '' ? null : branch,
+    changes: status.ok ? status.output.split(/\r?\n/).filter((line) => line.trim() !== '').length : null,
+    error: null,
   }
 }
 
@@ -267,7 +299,9 @@ function normalizeEntry(raw, index) {
   const custom = firstText(raw.customCommand) ?? null
   let kind = raw.kind === 'script' ? 'script' : 'custom'
   if (kind === 'script' && stack === 'frontend' && (pm === null || script === null)) kind = 'custom'
-  const customCommand = kind === 'custom' ? custom ?? legacy : custom
+  // `??` yields undefined when both are nullish, which would slip past the guard below
+  // and store an entry whose command is the empty string.
+  const customCommand = kind === 'custom' ? custom ?? legacy ?? null : custom
   if (kind === 'custom' && customCommand === null) return null
   return {
     id: firstText(raw.id) ?? randomUUID(),
@@ -278,7 +312,7 @@ function normalizeEntry(raw, index) {
     builder: stack === 'backend' ? builder : null,
     goal: stack === 'backend' && kind === 'script' ? goal ?? (builder === null ? null : BUILDER_GOALS[builder]) : null,
     profile: stack === 'backend' ? profile : null,
-    pm: kind === 'script' ? pm : pm,
+    pm,
     script: kind === 'script' ? script : null,
     customCommand: kind === 'custom' ? customCommand : null,
     nodeVersion: normalizeVersion(raw.nodeVersion),
@@ -325,6 +359,26 @@ function writeEntries(entries) {
   renameSync(temporary, dataFile())
 }
 
+/** Tail of the mutation queue: writes are serialized so two callers cannot interleave. */
+let mutations = Promise.resolve()
+
+/**
+ * Run one read-modify-write of the data file without interleaving another.
+ *
+ * Every mutation reads the whole file, decides, and writes it back; two of them at
+ * once (two browser tabs, say) would otherwise lose one update. This serializes them
+ * inside this process, which is where the panel's requests all arrive.
+ * @template T
+ * @param {() => Promise<T>} task the mutation.
+ * @returns {Promise<T>} the task's own result.
+ */
+function serialize(task) {
+  const next = mutations.then(task, task)
+  // A failed mutation must not poison the queue for the next one.
+  mutations = next.then(() => undefined, () => undefined)
+  return next
+}
+
 /**
  * The command an entry runs, composed from the remembered choice.
  * @param {object} entry the entry.
@@ -335,16 +389,31 @@ function commandOf(entry) {
     if (entry.stack === 'backend') {
       if (entry.builder === null) return entry.customCommand ?? ''
       const goal = entry.goal ?? BUILDER_GOALS[entry.builder] ?? ''
-      // The wrapper is only used when it is complete; a half-copied mvnw fails before
-      // it runs Maven, and the global executable is what this machine actually has.
-      const launcher = entry.builder === 'gradle'
-        ? (process.platform === 'win32' ? 'gradlew.bat' : './gradlew')
-        : (process.platform === 'win32' ? 'mvn' : 'mvn')
-      return `${launcher} ${goal}`
+      return `${buildProgramOf(entry)} ${goal}`
     }
     if (entry.pm !== null && entry.script !== null) return `${entry.pm} run ${entry.script}`
   }
   return entry.customCommand ?? ''
+}
+
+/**
+ * The Maven/Gradle program one backend entry runs.
+ *
+ * A project's own wrapper wins only when it is complete: a half-copied `mvnw` fails
+ * before it ever reaches Maven, and the global executable is what such a machine has.
+ * @param {{ builder: 'maven' | 'gradle', projectPath: string }} entry the backend entry.
+ * @returns {string} the program to run, as the shell resolves it.
+ */
+function buildProgramOf(entry) {
+  const windows = process.platform === 'win32'
+  const present = (relative) => existsSync(path.join(entry.projectPath, relative))
+  if (entry.builder === 'gradle') {
+    const wrapper = windows ? 'gradlew.bat' : 'gradlew'
+    return present(wrapper) ? (windows ? wrapper : './gradlew') : 'gradle'
+  }
+  const wrapper = windows ? 'mvnw.cmd' : 'mvnw'
+  const complete = present(wrapper) && present(path.join('.mvn', 'wrapper', 'maven-wrapper.properties'))
+  return complete ? (windows ? wrapper : './mvnw') : 'mvn'
 }
 
 /**
@@ -387,14 +456,38 @@ function stripAnsi(text) {
 }
 
 /**
+ * The last lines of one buffer, colour codes stripped.
+ * @param {{ chunks: string[] } | undefined} log the buffer.
+ * @param {number} count how many lines to keep.
+ * @param {boolean} [trim] whether to drop blank lines and indentation, as a row's tail does.
+ * @returns {string} the lines.
+ */
+function logLines(log, count, trim = true) {
+  const text = log === undefined ? '' : log.chunks.join('')
+  // A trailing newline would otherwise occupy one of the requested lines.
+  const stripped = stripAnsi(text).replace(/\r\n/g, '\n').replace(/\n+$/, '')
+  const lines = trimmedLines(stripped, trim)
+  return lines.slice(Math.max(0, lines.length - count)).join('\n').trim()
+}
+
+/**
+ * Split output into lines, optionally dropping blank ones and indentation.
+ * @param {string} text the output.
+ * @param {boolean} trim whether to trim each line and drop the empty ones.
+ * @returns {string[]} the lines.
+ */
+function trimmedLines(text, trim) {
+  const lines = text.split('\n')
+  return trim ? lines.map((line) => line.trim()).filter((line) => line !== '') : lines
+}
+
+/**
  * The last {@link TAIL_LINES} lines of one buffer.
  * @param {{ chunks: string[] } | undefined} log the buffer.
  * @returns {string} the tail.
  */
 function logTail(log) {
-  const text = log === undefined ? '' : log.chunks.join('')
-  const lines = stripAnsi(text).split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '')
-  return lines.slice(Math.max(0, lines.length - TAIL_LINES)).join('\n').trim()
+  return logLines(log, TAIL_LINES)
 }
 
 /**
@@ -427,10 +520,24 @@ function detectPort(text) {
 
 /**
  * Probe one loopback port: connect only, never listen.
+ *
+ * Both loopback families are tried: a dev server configured as `::1` (or one that
+ * resolved `localhost` to IPv6) accepts on `::1` only, and an IPv4-only probe would
+ * leave the row "starting" until its budget ran out.
  * @param {number} port TCP port.
  * @returns {Promise<boolean>} true when something accepts connections.
  */
 export function probePort(port) {
+  return probeHost(port, '127.0.0.1').then((inUse) => inUse || probeHost(port, '::1'))
+}
+
+/**
+ * Probe one loopback address.
+ * @param {number} port TCP port.
+ * @param {string} host loopback address.
+ * @returns {Promise<boolean>} true when it accepts a connection.
+ */
+function probeHost(port, host) {
   return new Promise((resolve) => {
     const socket = new net.Socket()
     let settled = false
@@ -440,10 +547,11 @@ export function probePort(port) {
       socket.destroy()
       resolve(inUse)
     }
+    // A destroyed socket can still emit its own error; that is not worth a crash.
+    socket.on('error', () => { finish(false) })
     socket.setTimeout(PROBE_TIMEOUT_MS, () => { finish(false) })
     socket.once('connect', () => { finish(true) })
-    socket.once('error', () => { finish(false) })
-    socket.connect(port, '127.0.0.1')
+    socket.connect(port, host)
   })
 }
 
@@ -680,11 +788,6 @@ function inspectBackend(directory) {
 }
 
 /**
- * Read one project's facts, cached briefly so polling stays cheap.
- * @param {string} directory project directory.
- * @returns {object} the facts, including warnings the browser can show.
- */
-/**
  * Normalize the stored inspection snapshot of one entry.
  *
  * Reading a project is done when the entry is saved or refreshed on demand, so
@@ -716,9 +819,9 @@ function normalizeFacts(raw) {
  * Read one directory's facts, optionally ignoring the short-lived cache.
  * @param {string} directory project directory.
  * @param {boolean} [fresh] bypass the cache, for an explicit refresh.
- * @returns {object} the facts.
+ * @returns {Promise<object>} the facts.
  */
-function projectFacts(directory, fresh = false) {
+async function projectFacts(directory, fresh = false) {
   if (fresh) projectCache.delete(directory)
   const cached = projectCache.get(directory)
   if (cached !== undefined && Date.now() - cached.at < PROJECT_CACHE_MS) return cached.value
@@ -727,7 +830,7 @@ function projectFacts(directory, fresh = false) {
   const pkg = readPackageFacts(directory)
   const lockfile = detectLockfile(directory)
   const nvmrc = readText(path.join(directory, '.nvmrc'))
-  const git = directoryExists ? readGit(directory) : { branch: null, changes: null, error: null }
+  const git = directoryExists ? await readGit(directory) : { branch: null, changes: null, error: null }
   const hasModules = existsSync(path.join(directory, 'node_modules'))
   if (!directoryExists) {
     warnings.push({ code: 'missing-directory', level: 'block', text: `目录不存在或无法访问：${directory}` })
@@ -757,6 +860,9 @@ function projectFacts(directory, fresh = false) {
   return value
 }
 
+/** Facts about package.json and node_modules that mean nothing to a backend entry. */
+const FRONTEND_ONLY_WARNINGS = new Set(['no-package-json', 'package-json-unparsable', 'no-node-modules'])
+
 /**
  * Inspect one entry's project and return the snapshot stored with it.
  *
@@ -765,13 +871,10 @@ function projectFacts(directory, fresh = false) {
  * @param {object} entry the entry.
  * @param {{ node?: object }} context host-supplied facts.
  * @param {boolean} [fresh] bypass the fact cache.
- * @returns {{ at: number, branch: string | null, changes: number | null, warnings: Array<object> }} the snapshot.
+ * @returns {Promise<{ at: number, branch: string | null, changes: number | null, warnings: Array<object> }>} the snapshot.
  */
-/** Facts about package.json and node_modules that mean nothing to a backend entry. */
-const FRONTEND_ONLY_WARNINGS = new Set(['no-package-json', 'package-json-unparsable', 'no-node-modules'])
-
-function snapshotOf(entry, context, fresh = false) {
-  const facts = projectFacts(entry.projectPath, fresh)
+async function snapshotOf(entry, context, fresh = false) {
+  const facts = await projectFacts(entry.projectPath, fresh)
   const backend = entry.stack === 'backend'
   const warnings = facts.warnings.filter((warning) => !backend || !FRONTEND_ONLY_WARNINGS.has(warning.code))
   // The build tool has its own facts: which Maven/Gradle exists, which profiles ship.
@@ -863,21 +966,17 @@ function runView(entry) {
  * installed Node.js versions the form offers.
  *
  * Every stored entry carries its own inspection snapshot, so this reads one JSON
- * file plus the installed-version list — nothing inside a project directory.
- * An entry saved before snapshots existed is inspected once here and stamped, so
- * the cost is paid a single time rather than on every panel open.
+ * file plus the installed-version list — nothing inside a project directory. An entry
+ * saved before snapshots existed is inspected here without being written back: a GET
+ * must not mutate the data file (see {@link migrateEntries} for the one-time stamp).
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<object>} the state payload.
  */
 export async function readLauncherState(context) {
   const stored = readEntries()
-  let backfilled = false
-  const entries = stored.map((entry) => {
-    if (entry.facts !== null) return entry
-    backfilled = true
-    return { ...entry, facts: snapshotOf(entry, context) }
-  })
-  if (backfilled) writeEntries(entries)
+  const entries = await Promise.all(stored.map(async (entry) => (
+    entry.facts !== null ? entry : { ...entry, facts: await snapshotOf(entry, context) }
+  )))
   const installed = typeof context.node?.installed === 'function' ? context.node.installed() : []
   const nvm = typeof context.node?.install === 'function' ? context.node.install() : null
   return {
@@ -922,9 +1021,9 @@ export async function readLauncherState(context) {
  * Validate one submitted entry.
  * @param {unknown} input the request body.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
- * @returns {{ ok: true, value: object } | { ok: false, code: string, message: string }} the entry or a refusal.
+ * @returns {Promise<{ ok: true, value: object } | { ok: false, code: string, message: string }>} the entry or a refusal.
  */
-function validateEntry(input, context) {
+async function validateEntry(input, context) {
   const source = input !== null && typeof input === 'object' ? input : {}
   const name = firstText(source.name)
   const projectPath = firstText(source.projectPath) ?? firstText(source.cwd) ?? context.defaultProjectPath ?? context.defaultCwd
@@ -957,7 +1056,7 @@ function validateEntry(input, context) {
     if (pm === null) return { ok: false, code: 'invalid-pm', message: '请先选择包管理器（npm / pnpm / yarn / bun）' }
     if (script === null) return { ok: false, code: 'invalid-script', message: '请先选择启动脚本' }
     if (script.length > SCRIPT_LIMIT) return { ok: false, code: 'invalid-script', message: `a script name is limited to ${SCRIPT_LIMIT} characters` }
-    const facts = projectFacts(projectPath)
+    const facts = await projectFacts(projectPath)
     if (!facts.hasPackageJson) {
       return { ok: false, code: 'no-package-json', message: '该目录没有 package.json：请改用自定义命令' }
     }
@@ -1000,45 +1099,68 @@ function validateEntry(input, context) {
 }
 
 /**
+ * Stamp the entries that predate inspection snapshots.
+ *
+ * The panel reads only the stored snapshot, so an entry written by an older version
+ * has to be inspected once. That write belongs to plugin start, not to a GET: reading
+ * the list must not mutate the data file, and doing it here keeps the cost to one run.
+ * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
+ * @returns {Promise<number>} how many entries gained a snapshot.
+ */
+export function migrateEntries(context) {
+  return serialize(async () => {
+    const entries = readEntries()
+    const missing = entries.filter((entry) => entry.facts === null)
+    if (missing.length === 0) return 0
+    const stamped = await Promise.all(missing.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]))
+    const byId = new Map(stamped)
+    writeEntries(entries.map((entry) => (byId.has(entry.id) ? { ...entry, facts: byId.get(entry.id) } : entry)))
+    return missing.length
+  })
+}
+
+/**
  * Create or update one entry.
  * @param {unknown} input the request body.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<object>} `{ ok: true, state }` or `{ ok: false, code, message }`.
  */
-export async function saveEntry(input, context) {
-  const checked = validateEntry(input, context)
-  if (!checked.ok) return checked
-  const entries = readEntries()
-  const existing = checked.value.id === undefined ? undefined : entries.find((entry) => entry.id === checked.value.id)
-  if (checked.value.id !== undefined && existing === undefined) {
-    return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${checked.value.id}` }
-  }
-  const entry = {
-    id: existing?.id ?? randomUUID(),
-    name: checked.value.name,
-    projectPath: checked.value.projectPath,
-    stack: checked.value.stack,
-    kind: checked.value.kind,
-    builder: checked.value.builder,
-    goal: checked.value.goal,
-    profile: checked.value.profile,
-    pm: checked.value.pm,
-    script: checked.value.script,
-    customCommand: checked.value.customCommand,
-    nodeVersion: checked.value.nodeVersion,
-    port: checked.value.port,
-    priority: checked.value.priority,
-    batchEnabled: checked.value.batchEnabled,
-    createdAt: existing?.createdAt ?? Date.now(),
-  }
-  const next = existing === undefined
-    ? [...entries, entry]
-    : entries.map((current) => (current.id === entry.id ? entry : current))
-  projectCache.delete(entry.projectPath)
-  // Stamp the project's facts now, so the list never has to read the directory.
-  entry.facts = snapshotOf(entry, context, true)
-  writeEntries(next)
-  return { ok: true, state: await readLauncherState(context) }
+export function saveEntry(input, context) {
+  return serialize(async () => {
+    const checked = await validateEntry(input, context)
+    if (!checked.ok) return checked
+    const entries = readEntries()
+    const existing = checked.value.id === undefined ? undefined : entries.find((entry) => entry.id === checked.value.id)
+    if (checked.value.id !== undefined && existing === undefined) {
+      return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${checked.value.id}` }
+    }
+    const entry = {
+      id: existing?.id ?? randomUUID(),
+      name: checked.value.name,
+      projectPath: checked.value.projectPath,
+      stack: checked.value.stack,
+      kind: checked.value.kind,
+      builder: checked.value.builder,
+      goal: checked.value.goal,
+      profile: checked.value.profile,
+      pm: checked.value.pm,
+      script: checked.value.script,
+      customCommand: checked.value.customCommand,
+      nodeVersion: checked.value.nodeVersion,
+      port: checked.value.port,
+      priority: checked.value.priority,
+      batchEnabled: checked.value.batchEnabled,
+      createdAt: existing?.createdAt ?? Date.now(),
+    }
+    const next = existing === undefined
+      ? [...entries, entry]
+      : entries.map((current) => (current.id === entry.id ? entry : current))
+    projectCache.delete(entry.projectPath)
+    // Stamp the project's facts now, so the list never has to read the directory.
+    entry.facts = await snapshotOf(entry, context, true)
+    writeEntries(next)
+    return { ok: true, state: await readLauncherState(context) }
+  })
 }
 
 /**
@@ -1051,15 +1173,17 @@ export async function saveEntry(input, context) {
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<object>} `{ ok: true, state }` or `{ ok: false, code, message }`.
  */
-export async function refreshEntry(input, context) {
-  const id = firstText(input?.id)
-  if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
-  const entries = readEntries()
-  const entry = entries.find((candidate) => candidate.id === id)
-  if (entry === undefined) return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
-  const facts = snapshotOf(entry, context, true)
-  writeEntries(entries.map((current) => (current.id === id ? { ...current, facts } : current)))
-  return { ok: true, state: await readLauncherState(context) }
+export function refreshEntry(input, context) {
+  return serialize(async () => {
+    const id = firstText(input?.id)
+    if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
+    const entries = readEntries()
+    const entry = entries.find((candidate) => candidate.id === id)
+    if (entry === undefined) return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
+    const facts = await snapshotOf(entry, context, true)
+    writeEntries(entries.map((current) => (current.id === id ? { ...current, facts } : current)))
+    return { ok: true, state: await readLauncherState(context) }
+  })
 }
 
 /**
@@ -1067,38 +1191,59 @@ export async function refreshEntry(input, context) {
  *
  * Only the flag is written: toggling participation must not re-run the project
  * inspection or re-validate the command.
- * @param {unknown} input the request body: `{ id, batch }`.
+ * @param {unknown} input the request body: `{ id, batchEnabled }`.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<object>} `{ ok: true, state }` or `{ ok: false, code, message }`.
  */
-export async function setBatchEnabled(input, context) {
-  const id = firstText(input?.id)
-  if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
-  const entries = readEntries()
-  if (!entries.some((entry) => entry.id === id)) {
-    return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
-  }
-  const flag = input?.batchEnabled !== false
-  writeEntries(entries.map((entry) => (entry.id === id ? { ...entry, batchEnabled: flag } : entry)))
-  return { ok: true, state: await readLauncherState(context) }
+export function setBatchEnabled(input, context) {
+  return serialize(async () => {
+    const id = firstText(input?.id)
+    if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
+    const entries = readEntries()
+    if (!entries.some((entry) => entry.id === id)) {
+      return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
+    }
+    const flag = input?.batchEnabled !== false
+    writeEntries(entries.map((entry) => (entry.id === id ? { ...entry, batchEnabled: flag } : entry)))
+    return { ok: true, state: await readLauncherState(context) }
+  })
 }
+
 /**
  * Remove one entry, stopping it first when it is running.
  * @param {unknown} input the request body: `{ id }`.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<object>} `{ ok: true, state }` or `{ ok: false, code, message }`.
  */
-export async function removeEntry(input, context) {
-  const id = firstText(input?.id)
-  if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
-  const entries = readEntries()
-  if (!entries.some((entry) => entry.id === id)) {
-    return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
+export function removeEntry(input, context) {
+  return serialize(async () => {
+    const id = firstText(input?.id)
+    if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
+    const entries = readEntries()
+    if (!entries.some((entry) => entry.id === id)) {
+      return { ok: false, code: 'unknown-entry', message: `no launcher has the id ${id}` }
+    }
+    await stopEntry({ id })
+    runs.delete(id)
+    writeEntries(entries.filter((entry) => entry.id !== id))
+    return { ok: true, state: await readLauncherState(context) }
+  })
+}
+
+/**
+ * Take one chunk of a run's output: buffer it, and learn its port if it announced one.
+ * @param {object} run the run.
+ * @param {string} text the chunk.
+ * @returns {void}
+ */
+function onOutput(run, text) {
+  appendLog(run.log, text)
+  if (run.readyAt !== null) return
+  const detected = detectPort(text)
+  if (detected !== null && detected !== run.port) {
+    run.port = detected
+    startReadinessWatch(run, detected)
   }
-  await stopEntry({ id })
-  runs.delete(id)
-  writeEntries(entries.filter((entry) => entry.id !== id))
-  return { ok: true, state: await readLauncherState(context) }
 }
 
 /**
@@ -1124,7 +1269,7 @@ export async function startEntry(input, context) {
     return { ok: false, code: 'invalid-command', message: 'this entry has no command to run' }
   }
 
-  const facts = projectFacts(entry.projectPath)
+  const facts = await projectFacts(entry.projectPath)
   if (entry.kind === 'script' && facts.hasPackageJson && facts.parsed
     && entry.script !== null && !facts.scripts.some((candidate) => candidate.name === entry.script)) {
     return { ok: false, code: 'script-missing', message: `package.json 里没有脚本 ${entry.script}，请重新选择` }
@@ -1142,7 +1287,10 @@ export async function startEntry(input, context) {
     const resolved = context.node.directory(entry.nodeVersion)
     if (resolved?.exists === true) {
       nodeDirectory = resolved.directory
-      env.PATH = `${nodeDirectory}${path.delimiter}${env.PATH ?? ''}`
+      // Windows keeps `Path` in process.env, not `PATH`: writing a second key would
+      // leave the original (unpinned) entry to win or lose by accident of ordering.
+      const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+      env[pathKey] = `${nodeDirectory}${path.delimiter}${env[pathKey] ?? ''}`
     }
   }
 
@@ -1187,19 +1335,10 @@ export async function startEntry(input, context) {
   if (nodeDirectory !== null) appendLog(run.log, `[launcher] node from ${nodeDirectory}\n`)
 
   child.stdout?.setEncoding('utf8')
-  child.stdout?.on('data', (chunk) => {
-    const text = String(chunk)
-    appendLog(run.log, text)
-    if (run.readyAt === null) {
-      const detected = detectPort(text)
-      if (detected !== null && detected !== run.port) {
-        run.port = detected
-        startReadinessWatch(run, detected)
-      }
-    }
-  })
+  child.stdout?.on('data', (chunk) => { onOutput(run, String(chunk)) })
+  // Announcements reach stderr too (webpack, Gradle, anything using a progress line).
   child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', (chunk) => { appendLog(run.log, String(chunk)) })
+  child.stderr?.on('data', (chunk) => { onOutput(run, String(chunk)) })
   child.on('error', (error) => {
     appendLog(run.log, `\n[launcher] ${error.message}\n`)
     run.child = null
@@ -1232,12 +1371,6 @@ export async function startEntry(input, context) {
 }
 
 /**
- * Stop one entry's process tree.
- * @param {unknown} input the request body: `{ id }`.
- * @param {{ defaultProjectPath: string, node?: object }} [context] host-supplied facts.
- * @returns {Promise<object>} `{ ok: true, state? }` or `{ ok: false, code, message }`.
- */
-/**
  * Wait until nothing answers on one port any more.
  *
  * A kill is asynchronous: `taskkill` and a process group signal both return before
@@ -1256,6 +1389,12 @@ async function waitForPortRelease(port, budget) {
   return !await probePort(port)
 }
 
+/**
+ * Stop one entry's process tree.
+ * @param {unknown} input the request body: `{ id }`.
+ * @param {{ defaultProjectPath: string, node?: object }} [context] host-supplied facts.
+ * @returns {Promise<object>} `{ ok: true, state? }` or `{ ok: false, code, message }`.
+ */
 export async function stopEntry(input, context) {
   const id = firstText(input?.id)
   if (id === undefined) return { ok: false, code: 'invalid-id', message: 'an id is required' }
@@ -1277,16 +1416,38 @@ export async function stopEntry(input, context) {
 /**
  * Inspect one project directory, read-only, for the entry form.
  * @param {unknown} input `{ dir }` from the query string or a body.
- * @returns {object} the facts, or `{ ok: false, code, message }`.
+ * @returns {Promise<object>} the facts, or `{ ok: false, code, message }`.
  */
-export function inspectProject(input) {
+export async function inspectProject(input) {
   const directory = firstText(input?.dir ?? input?.directory)
   if (directory === undefined) return { ok: false, code: 'invalid-directory', message: 'dir is required' }
   if (!path.isAbsolute(directory)) {
     return { ok: false, code: 'invalid-directory', message: `the directory must be an absolute path: ${directory}` }
   }
-  const facts = projectFacts(directory)
+  const facts = await projectFacts(directory)
   return { ok: true, ...facts }
+}
+
+/**
+ * The last lines one run printed, for the panel's log view.
+ *
+ * The ring buffer keeps {@link LOG_LIMIT} bytes per run, but a row only shows its last
+ * line; this is where the rest becomes reachable without a terminal.
+ * @param {string} id entry id.
+ * @param {number} [lines] how many lines to return, clamped to the ceiling.
+ * @returns {{ running: boolean, status: string, text: string, truncated: boolean } | null} the tail, or null when this process never ran the entry.
+ */
+export function readRunLog(id, lines = LOG_VIEW_LINES) {
+  const run = runs.get(id)
+  if (run === undefined) return null
+  const wanted = Number.isFinite(lines) ? Math.min(LOG_VIEW_LINES_MAX, Math.max(1, Math.trunc(lines))) : LOG_VIEW_LINES
+  const total = stripAnsi(run.log.chunks.join('')).split('\n').length
+  return {
+    running: run.child !== null,
+    status: run.child !== null ? 'running' : run.stopped ? 'stopped' : 'exited',
+    text: logLines(run.log, wanted, false),
+    truncated: total > wanted,
+  }
 }
 
 /**
@@ -1302,4 +1463,26 @@ export function stopAll() {
     void terminate(run)
   }
   runs.clear()
+}
+
+/**
+ * The pure helpers, for the test suite only.
+ *
+ * Nothing in the plugin reads this object: `index.js` imports the operations above,
+ * and the browser talks to them over the routes. It exists so `test/` can exercise the
+ * parsing and validation rules without a Host, a shell, or a project on disk.
+ */
+export const internals = {
+  buildProgramOf,
+  commandOf,
+  detectPort,
+  inspectBackend,
+  logLines,
+  logTail,
+  normalizeEntry,
+  normalizePort,
+  normalizePriority,
+  normalizeVersion,
+  stripAnsi,
+  validateEntry,
 }
