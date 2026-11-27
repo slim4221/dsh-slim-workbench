@@ -35,15 +35,26 @@ function storeRuns(records) {
 
 /**
  * Whether a pid is alive.
+ *
+ * A killed child stays a zombie until its parent reaps it, and a zombie still answers
+ * signal 0 — so on Linux the process state has to be read as well, or a test that waits
+ * for a process to die would wait forever.
  * @param {number} pid the process id.
- * @returns {boolean} true when it answers.
+ * @returns {boolean} true when it is really running.
  */
 function alive(pid) {
   try {
     process.kill(pid, 0)
-    return true
   } catch (error) {
     return error.code === 'EPERM'
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const end = stat.lastIndexOf(')')
+    return stat.slice(end + 2, end + 3) !== 'Z'
+  } catch {
+    // No /proc (Windows): signal 0 answered, which is the whole answer there.
+    return true
   }
 }
 
@@ -85,6 +96,9 @@ test('an adopted run is still running, and one stop kills it', { timeout: 40000 
   // Node is used rather than PowerShell so the same test runs on both platforms.
   const orphan = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'],
     { stdio: 'ignore', windowsHide: true })
+  // Keep the handle: the exit listener is what makes this process reap its child, and an
+  // unreaped child on Linux is a zombie that still answers signal 0.
+  orphan.on('exit', () => {})
   orphan.unref()
   assert.ok(await waitFor(() => alive(orphan.pid)), 'the orphan is running')
   storeRuns([{
@@ -125,6 +139,7 @@ test('a record whose process is gone, or is a different program, is dropped', { 
 
   const other = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'],
     { stdio: 'ignore', windowsHide: true })
+  other.on('exit', () => {})
   other.unref()
   assert.ok(await waitFor(() => alive(other.pid)), 'the unrelated process is running')
 

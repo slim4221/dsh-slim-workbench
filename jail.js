@@ -13,8 +13,12 @@
  */
 import { spawn } from 'node:child_process'
 
-/** How long the keeper gets to start before the caller falls back. */
-const START_TIMEOUT = 4000
+/** How long the keeper gets to start before the caller falls back.
+ *
+ * Generous on purpose: the first start compiles the tiny C# helper, and a cold CI runner
+ * can take several seconds over it. It is paid once per session.
+ */
+const START_TIMEOUT = 15000
 
 /** How long one job operation may take before it is treated as failed. */
 const OP_TIMEOUT = 3000
