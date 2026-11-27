@@ -22,14 +22,31 @@ package manager and the script — neither is preselected, and a lockfile is sho
 a hint, never applied on your behalf. Optional: pin a Node version for this entry only, a port, and a
 priority. Start runs the command in that folder; the row reports *starting*, then *ready* when the
 port answers, and then shows the LAN address (the local address is implied by the machine you are
-on). **Batch start** runs the selected entries one after another, waiting for each one's port before
-starting the next, which is what a project depending on an SSO service needs.
+on). **Output** opens the last 200 lines that run printed, read from the in-memory buffer and
+refreshed while the dialog is open. **Batch start** runs the selected entries one after another,
+waiting for each one's port before starting the next, which is what a project depending on an SSO
+service needs; its readiness budget follows the stack (three minutes for a dev server, five for a
+backend).
 
 **Backend projects** covers Spring Boot: choose Maven or Gradle, choose a Spring profile from the
 `application-*.yaml` files the project ships, and the port is read from `server.port`. The profile
 travels as the `SPRING_PROFILES_ACTIVE` environment variable, so it works for `spring-boot:run`,
-`bootRun`, a fat jar, and a hand-written command alike. A backend build takes longer than a dev
-server, so it gets a five-minute readiness budget instead of three.
+`bootRun`, a fat jar, and a hand-written command alike. A build tool owned by the project wins when it
+is complete (`mvnw` plus its wrapper properties, or `gradlew`); otherwise the global `mvn` / `gradle`
+is used, because a half-copied wrapper fails before it reaches the build. A backend build takes longer
+than a dev server, so it gets a five-minute readiness budget instead of three.
+
+## What the model can see
+
+Two tools, and the line between them is deliberate:
+
+- `node_version` reads the versions this machine has and can switch, install, or remove one. Those
+  change the machine for everything running on it, so the tool says plainly that a write only follows
+  a request the user made by name.
+- `workbench_status` is read-only: the configured entries, which of them run, their port and LAN URL,
+  branch, the warnings the panel shows, and the last lines of each run's output. It answers "why did
+  my dev server stop" without being able to start or stop anything — starting a long-lived process
+  stays a user action.
 
 ## What it never does
 
@@ -60,7 +77,8 @@ without spawning `git`.
   explains where to switch instead.
 - The backend pane starts development goals (`spring-boot:run`, `bootRun`). It does not package a
   jar first, and it does not manage Java versions.
-- A failed start shows the last line of output, with terminal colour codes stripped. There is no full
-  log view.
+- A failed start shows the last line of output in the row, and **Output** shows the run's last 200
+  lines from the in-memory buffer, with terminal colour codes stripped. There is no streaming log and
+  nothing is written to disk; a run that started before this plugin was loaded is not visible at all.
 - The available-release page reads `https://nodejs.org/dist/index.json` and caches it for ten
   minutes; installing downloads through nvm. Nothing else leaves the machine.
