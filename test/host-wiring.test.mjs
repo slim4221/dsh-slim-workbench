@@ -134,19 +134,17 @@ test('the Node state says when it was read', async () => {
   assert.ok(state.payload.readAt <= Date.now() + 5)
 })
 
-test('a successful read is remembered for a later failure', async () => {
+test('a successful read is remembered in the data file', async () => {
   const state = await call('/slim-workbench/state')
   assert.equal(state.status, 200)
-  const file = path.join(home, 'slim-workbench', 'node-cache.json')
-  assert.ok(existsSync(file), 'the read lands in a cache file beside the launcher data')
-  const cached = JSON.parse(readFileSync(file, 'utf8'))
-  assert.equal(typeof cached.readAt, 'number')
-  assert.ok(Array.isArray(cached.versions))
-  // A corrupt cache is the same as no cache: the live read must still answer.
-  writeFileSync(file, '{ not json', 'utf8')
-  const again = await call('/slim-workbench/state')
-  assert.equal(again.status, 200)
-  assert.equal(typeof again.payload.readAt, 'number')
+  // The cache write is fire-and-forget so it cannot delay the reply: give it a tick.
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const file = path.join(home, 'slim-workbench', 'launchers.json')
+  assert.ok(existsSync(file), 'one file holds the entries and the remembered read')
+  const stored = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(typeof stored.nodeCache?.readAt, 'number')
+  assert.ok(Array.isArray(stored.nodeCache?.versions))
+  assert.deepEqual(stored.entries, [], 'the cache does not invent entries')
 })
 
 test('a saved entry comes back with its command and snapshot', async () => {
@@ -176,6 +174,10 @@ test('a saved entry comes back with its command and snapshot', async () => {
   assert.equal(entry.port, 5173)
   assert.equal(entry.priority, 2)
   assert.ok(entry.inspectedAt !== null, 'saving stamps the project snapshot')
+
+  // The entry write must carry the section it does not own.
+  const stored = JSON.parse(readFileSync(path.join(home, 'slim-workbench', 'launchers.json'), 'utf8'))
+  assert.equal(typeof stored.nodeCache?.readAt, 'number', 'saving an entry keeps the remembered read')
 
   // The panel no longer sends a priority: editing must keep the stored one, not reset it.
   const edited = await call('/slim-workbench/launch/save', {
@@ -255,6 +257,17 @@ test('the status tool reports what the panel shows', async () => {
     () => tools.get('workbench_status').execute({ id: 'missing' }),
     /no launcher has the id missing/,
   )
+})
+
+test('a corrupt data file is treated as empty, not as a crash', async () => {
+  const file = path.join(home, 'slim-workbench', 'launchers.json')
+  writeFileSync(file, '{ this is not json', 'utf8')
+  const launch = await call('/slim-workbench/launch/state')
+  assert.equal(launch.status, 200)
+  assert.deepEqual(launch.payload.entries, [])
+  const node = await call('/slim-workbench/state')
+  assert.equal(node.status, 200)
+  assert.equal(typeof node.payload.readAt, 'number', 'the live read still answers')
 })
 
 test('unmounting disposes every registration', () => {

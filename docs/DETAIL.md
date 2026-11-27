@@ -62,8 +62,9 @@ The project directory is read-only for this plugin. It reads `package.json`, loc
 `.git/index`, which is a file inside the project. It never writes, creates, renames, or deletes
 anything inside a project, never installs dependencies, never edits a lockfile or any project
 configuration, never runs a mutating git command, and never kills a process it did not start. It writes
-two files, both under `$DSH_HOME/slim-workbench/`: `launchers.json` (your entries) and `node-cache.json`
-(the last Node read, kept only so a failed live read still has something to show — delete it any time).
+one file, `$DSH_HOME/slim-workbench/launchers.json`, with two sections: `entries` (your launchers) and
+`nodeCache` (the last Node read, kept only so a failed live read still has something to show). Deleting
+the cache section costs nothing but that fallback.
 
 ## Data and moving machines
 

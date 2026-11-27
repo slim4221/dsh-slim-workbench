@@ -19,11 +19,9 @@
  * Harness package exists.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
 import {
-  inspectProject, migrateEntries, pluginDataDirectory, probePort, readLauncherState, readRunLog, refreshEntry,
-  removeEntry, saveEntry, setBatchEnabled, startEntry, stopAll, stopEntry,
+  inspectProject, migrateEntries, probePort, readLauncherState, readNodeCache, readRunLog, refreshEntry,
+  rememberNodeCache, removeEntry, saveEntry, setBatchEnabled, startEntry, stopAll, stopEntry,
 } from './launcher.js'
 import {
   currentLinkedVersion, describeState, installedVersions, installInfo, installVersion, readReleases, readState,
@@ -54,54 +52,6 @@ const MAX_BODY_BYTES = 8 * 1024
 
 /** How many released versions the tool's text summary lists. */
 const RELEASES_IN_SUMMARY = 20
-
-/** The file that remembers the last successful Node read. */
-const NODE_CACHE_NAME = 'node-cache.json'
-
-/**
- * Where the last Node read is kept. It lives beside the launcher data, not inside it:
- * the launcher file is the user's list, this is a cache and may be deleted at any time.
- * @returns {string} absolute path.
- */
-function nodeCacheFile() {
-  return path.join(pluginDataDirectory(), NODE_CACHE_NAME)
-}
-
-/**
- * The cached Node read, when there is one that still parses.
- * @returns {object | null} the payload as it was read, or null.
- */
-function readNodeCache() {
-  try {
-    const file = nodeCacheFile()
-    if (!existsSync(file)) return null
-    const parsed = JSON.parse(readFileSync(file, 'utf8'))
-    return parsed !== null && typeof parsed === 'object' ? parsed : null
-  } catch {
-    // An unreadable cache is the same as no cache; the live read is what matters.
-    return null
-  }
-}
-
-/**
- * Remember one successful Node read.
- *
- * Best effort on purpose: losing the cache costs the panel its fallback below, and that is
- * never a reason to fail a read that already succeeded.
- * @param {object} state the payload that was just read.
- * @returns {void}
- */
-function saveNodeCache(state) {
-  try {
-    const file = nodeCacheFile()
-    mkdirSync(path.dirname(file), { recursive: true })
-    const temporary = `${file}.tmp`
-    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
-    renameSync(temporary, file)
-  } catch {
-    // Ignored: see the note above.
-  }
-}
 
 /** How many output lines the status tool shows per run, and the ceiling it accepts. */
 const STATUS_LINES = 8
@@ -575,7 +525,8 @@ export function apply(ctx, config) {
     getRoute(ROUTE_STATE, async () => {
       try {
         const state = await reads.state()
-        saveNodeCache(state)
+        // The answer is already live; remembering it must not add latency to the reply.
+        void rememberNodeCache(state)
         return state
       } catch (error) {
         // A live read that fails still has an answer worth showing: the last one, with the

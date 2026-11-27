@@ -41,12 +41,12 @@ dsh plugin --profile desktop add "git+https://github.com/slim4221/dsh-slim-workb
 - git 只跑两条只读命令：`git --no-optional-locks rev-parse --abbrev-ref HEAD` 与 `git --no-optional-locks status --porcelain`。
   `--no-optional-locks` 不是装饰：没有它，`git status` 在缓存过期时会**改写 `.git/index`**（那是项目里的文件），加上就一条字节都不动
 - 只停止它自己启动的进程树（Windows `taskkill /T`，POSIX 进程组信号）
-- 写入的两个文件都在 `$DSH_HOME/slim-workbench/` 下：`launchers.json`（你的条目）与 `node-cache.json`（最后一次 Node 读取的快照，留着只为实时读取失败时还能看一眼；随时可删）
+- 唯一的写入目标：`$DSH_HOME/slim-workbench/launchers.json`。一个文件两段：`entries` 是你的条目，`nodeCache` 是最后一次 Node 读取的快照（只为实时读取失败时还能显示上次结果，可随时删）
 
 ## 数据 · Data
 
 条目保存在 `$DSH_HOME/slim-workbench/launchers.json`（Windows 为 `C:\Users\<你>\.dsh\slim-workbench\launchers.json`）。
-Node 管理每次成功读取后，会把那份结果另存到同目录的 `node-cache.json`，所以实时读取失败时面板还能显示上次的列表（并标出那是哪一刻读的）。
+同一个文件里的 `nodeCache` 段保存 Node 管理最后一次成功读取的结果，所以实时读取失败时面板还能显示上次的列表（并标出那是哪一刻读的）。
 
 - 里面只有：项目**绝对路径**、你选的命令条件、端口、是否参与批量、警告快照 —— 没有项目源码、没有密钥
 - 条目里的 `priority` **能填也能存**（新增/编辑弹窗里就是那个「优先级」，行内也会显示），但**目前没有消费方**：启动顺序不看它（逐个启动按列表顺序，同时启动没有顺序）。以后要接排序规则，已有的值直接可用

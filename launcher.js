@@ -16,14 +16,17 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
-/** On-disk file version, so a later layout change can migrate instead of guess. */
-const FILE_VERSION = 2
+/**
+ * On-disk file version, so a later layout change can migrate instead of guess.
+ * 3 added the `nodeCache` section beside `entries`.
+ */
+const FILE_VERSION = 3
 
 /** Output kept per run, in bytes. */
 const LOG_LIMIT = 64 * 1024
@@ -332,45 +335,70 @@ function normalizeEntry(raw, index) {
 }
 
 /**
- * Read the stored entries, dropping anything unusable and preserving file order.
- * @returns {Array<object>} stored entries.
+ * The document store: one file, more than one section.
  */
-function readEntries() {
+
+/**
+ * Read the whole data file: the entries, and the other sections it remembers.
+ *
+ * The file is one document with more than one section now, so everything that writes it
+ * has to carry the sections it is not touching. Parsing is tolerant: a corrupt file reads
+ * as empty rather than throwing at the caller.
+ * @returns {{ version: number, entries: Array<unknown>, nodeCache: object | null }} the document.
+ */
+function readDocument() {
+  const empty = { version: FILE_VERSION, entries: [], nodeCache: null }
   const text = readText(dataFile())
-  if (text === null) return []
+  if (text === null) return empty
   let stored
   try {
     stored = JSON.parse(text)
   } catch {
-    return []
+    return empty
   }
-  const entries = Array.isArray(stored?.entries) ? stored.entries : []
-  return entries.flatMap((entry, index) => {
+  const source = stored !== null && typeof stored === 'object' ? stored : {}
+  return {
+    version: FILE_VERSION,
+    entries: Array.isArray(source.entries) ? source.entries : [],
+    nodeCache: source.nodeCache !== null && typeof source.nodeCache === 'object' ? source.nodeCache : null,
+  }
+}
+
+/**
+ * The stored launcher entries, normalized.
+ * @returns {Array<object>} the entries.
+ */
+function readEntries() {
+  return readDocument().entries.flatMap((entry, index) => {
     const normalized = normalizeEntry(entry, index)
     return normalized === null ? [] : [normalized]
   })
 }
 
 /**
- * Replace the stored entries, atomically.
- * @param {Array<object>} entries the complete list.
+ * Write the whole data file, atomically.
+ * @param {{ entries: Array<object>, nodeCache?: object | null }} document the sections to store.
  * @returns {void}
  */
-function writeEntries(entries) {
+function writeDocument(document) {
   mkdirSync(dataDirectory(), { recursive: true })
-  const text = `${JSON.stringify({ version: FILE_VERSION, entries }, null, 2)}\n`
+  const body = { version: FILE_VERSION, entries: document.entries, nodeCache: document.nodeCache ?? null }
+  const text = `${JSON.stringify(body, null, 2)}\n`
   const temporary = `${dataFile()}.tmp`
   writeFileSync(temporary, text, 'utf8')
   renameSync(temporary, dataFile())
 }
 
 /**
- * The plugin's own data directory, for anything that has to keep a file beside the
- * launcher list without touching the profile's patch file.
- * @returns {string} absolute path to `$DSH_HOME/slim-workbench`.
+ * Replace the entries, keeping every other section the file already holds.
+ *
+ * This is the whole reason writes go through {@link readDocument}: a mutation that knows
+ * only about entries must not drop the Node cache next to them.
+ * @param {Array<object>} entries the complete list.
+ * @returns {void}
  */
-export function pluginDataDirectory() {
-  return dataDirectory()
+function writeEntries(entries) {
+  writeDocument({ ...readDocument(), entries })
 }
 
 /** Tail of the mutation queue: writes are serialized so two callers cannot interleave. */
@@ -1116,22 +1144,80 @@ async function validateEntry(input, context) {
 }
 
 /**
+ * The Node read remembered in the data file.
+ * @returns {object | null} the payload as it was read, or null when nothing is remembered.
+ */
+export function readNodeCache() {
+  return readDocument().nodeCache
+}
+
+/**
+ * Remember one successful Node read.
+ *
+ * Serialized with the entry mutations: both write the same file, and a cache write must
+ * never land on top of a save that is in the middle of its own read-modify-write.
+ * @param {object} state the payload that was just read.
+ * @returns {Promise<void>} settles when it is on disk.
+ */
+export function rememberNodeCache(state) {
+  return serialize(async () => {
+    writeDocument({ ...readDocument(), nodeCache: state })
+  })
+}
+
+/** Where the 0.5.7 build kept its Node cache, before the section moved into this file. */
+function legacyNodeCacheFile() {
+  return path.join(dataDirectory(), 'node-cache.json')
+}
+
+/**
+ * A cache left behind by a build that kept it in its own file.
+ * @returns {object | null} a usable payload, or null.
+ */
+function legacyNodeCache() {
+  const text = readText(legacyNodeCacheFile())
+  if (text === null) return null
+  try {
+    const parsed = JSON.parse(text)
+    return parsed !== null && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Stamp the entries that predate inspection snapshots.
  *
  * The panel reads only the stored snapshot, so an entry written by an older version
  * has to be inspected once. That write belongs to plugin start, not to a GET: reading
  * the list must not mutate the data file, and doing it here keeps the cost to one run.
+ *
+ * The same pass folds a leftover `node-cache.json` from the version that kept the cache
+ * in its own file, so nothing stale is left lying next to the data.
  * @param {{ defaultProjectPath: string, node?: object }} context host-supplied facts.
  * @returns {Promise<number>} how many entries gained a snapshot.
  */
 export function migrateEntries(context) {
   return serialize(async () => {
+    const document = readDocument()
     const entries = readEntries()
     const missing = entries.filter((entry) => entry.facts === null)
-    if (missing.length === 0) return 0
-    const stamped = await Promise.all(missing.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]))
-    const byId = new Map(stamped)
-    writeEntries(entries.map((entry) => (byId.has(entry.id) ? { ...entry, facts: byId.get(entry.id) } : entry)))
+    const legacy = document.nodeCache === null ? legacyNodeCache() : null
+    if (missing.length === 0 && legacy === null) return 0
+    let next = entries
+    if (missing.length > 0) {
+      const stamped = await Promise.all(missing.map(async (entry) => [entry.id, await snapshotOf(entry, context, true)]))
+      const byId = new Map(stamped)
+      next = entries.map((entry) => (byId.has(entry.id) ? { ...entry, facts: byId.get(entry.id) } : entry))
+    }
+    writeDocument({ entries: next, nodeCache: document.nodeCache ?? legacy })
+    if (legacy !== null || existsSync(legacyNodeCacheFile())) {
+      try {
+        rmSync(legacyNodeCacheFile(), { force: true })
+      } catch {
+        // A file we cannot remove is only untidy; the section in the data file is what counts.
+      }
+    }
     return missing.length
   })
 }
