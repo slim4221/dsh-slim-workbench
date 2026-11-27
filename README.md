@@ -84,9 +84,10 @@ npm test        # node --test：行为测试 + 渲染测试（node 18+）
 
 自检覆盖的是「装得上、点得开」：BOM、行尾、包名与 patch 是否一致、`meta.detail` 是否指向真实文件、
 客户端模块 id 是否等于包名、字典两面是否对齐（重复键、缺键、`t('…')` 未定义）、每个 `test/` 文件是否被
-`npm test` 点名。测试覆盖的是「算得对、画得出」：条目迁移、端口与版本归一化、Spring 配置解析、
-`validateEntry` 的每条拒绝理由、Maven/Gradle 包装器选择，另外用一套几十行的假 React（hooks 有状态、
-effect 不执行）把三个面板真的渲染一遍 —— 表格行、操作按钮、输出弹窗都是真渲染出来的。
+`npm test` 点名。测试覆盖的是「算得对、画得出、接得上」：条目迁移、端口与版本归一化、Spring 配置解析、
+`validateEntry` 的每条拒绝理由、Maven/Gradle 包装器选择；用一套几十行的假 React（hooks 有状态、effect
+不执行）把三个面板真渲染一遍 —— 表格行、操作按钮、输出弹窗都是真渲染出来的；再把 Host 半挂到假上下文上
+跑一遍 —— 15 条路由与两个工具都注册了、非本机 Host 被 403、非 JSON 与超长 body 被挡住、存一条能取回来。
 
 改完 `client.js` / `index.js` 后重启插件条目（Plugin Manager 里关掉再打开）即可，页面无需重载；
 仅改动 CSS 字符串时刷新页面即可。新加一个 `test/*.test.mjs` 记得同时加进 `package.json` 的 `test`

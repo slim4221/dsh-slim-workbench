@@ -39,7 +39,7 @@
   "license": "MIT",
   "scripts": {
     "check": "node scripts/check.mjs",
-    "test": "node --test test/launcher.test.mjs test/nvm.test.mjs test/client-render.test.mjs"
+    "test": "node --test test/launcher.test.mjs test/nvm.test.mjs test/client-render.test.mjs test/host-wiring.test.mjs"
   },
   "keywords": [
     "dsh-plugin",
