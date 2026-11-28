@@ -5,6 +5,8 @@
 Which dev server is up, on which port, on which branch, running which Node — one panel shows it all.
 It lives in the sidebar and opens instantly; it never starts anything by itself.
 
+![Frontend projects](preview-frontend.png)
+
 ## 🧩 Three systems, one panel
 
 ### ⚙️ Node management
@@ -15,6 +17,8 @@ instead of leaving a dead grey button — and removing asks first, showing **the
 deleted**. On macOS and Linux the pane lists versions only (there a version belongs to a shell) rather
 than pretending a machine-wide switch exists. **Refresh** re-reads what is installed on this machine
 only; it does not re-fetch the release index.
+
+![Node management](preview-node.png)
 
 ### 🖥️ Frontend projects
 
@@ -101,3 +105,6 @@ panel reads one JSON file, so it is instant and never calls `git`.
   and the field's own hint says so
 - The install tab reads `https://nodejs.org/dist/index.json` and caches it for ten minutes; installs go
   through nvm. Nothing else leaves the machine
+
+> The previews above are rendered by this plugin's own `client.js` in a local browser (sample data).
+> `npm run visual -- --docs` regenerates them, so they cannot drift away from the real panel.

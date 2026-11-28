@@ -24,6 +24,9 @@ const args = process.argv.slice(2)
 const width = Number(args[args.indexOf('--width') + 1]) || 1600
 const height = Number(args[args.indexOf('--height') + 1]) || 900
 const keep = args.includes('--keep')
+// The detail page's previews: the same page, cropped by the window instead of by an editor.
+const docs = args.includes('--docs')
+const PREVIEW_HEIGHT = 620
 
 /**
  * Find a Chrome binary.
@@ -285,10 +288,11 @@ window.__DICTIONARIES__ = null;
     window.__DICTIONARIES__ = dictionaries;
     window.mountReact(mainComponent, { t: (key) => dictionaries.zh[key] ?? dictionaries.en[key] ?? key },
       document.getElementById('pane'));
-    // The workbench opens on Node; the table lives in the frontend system.
+    // The workbench opens on Node; the query string asks for another system.
     await hop();
+    const wanted = Number(new URLSearchParams(location.search).get('pane') ?? '1');
     const nav = document.querySelectorAll('.wbm-nav-item');
-    if (nav.length > 1) nav[1].click();
+    if (nav.length > wanted && Number.isInteger(wanted) && wanted >= 0) nav[wanted].click();
     // The stubbed fetch resolves in a microtask, so a chain of hops is enough to let the
     // panel paint both the frame and the table — no timers, which a headless dump may skip.
     for (let index = 0; index < 40; index += 1) await hop();
@@ -439,6 +443,26 @@ function measureAt(windowWidth, name) {
   return { metrics: JSON.parse(decoded), screenshot: shot }
 }
 
+/**
+ * Render one pane into `docs/` as a still, for the plugin's detail page.
+ *
+ * Same page the measurements use, so a preview can never show something the code does not
+ * draw. The data is the stub set in this file; the styling is the plugin's own.
+ * @param {'node' | 'frontend'} pane which system to open.
+ * @param {string} target the file to write.
+ * @param {number} windowWidth the window width in CSS pixels.
+ * @returns {void}
+ */
+function renderPreview(pane, target, windowWidth) {
+  const profile = join(work, `profile-preview-${pane}`)
+  const url = `file:///${html.replace(/\\/g, '/')}?pane=${pane === 'node' ? 0 : 1}`
+  execFileSync(chrome, ['--headless=new', '--disable-gpu', '--allow-file-access-from-files',
+    `--window-size=${windowWidth},${PREVIEW_HEIGHT}`, '--virtual-time-budget=5000', '--no-first-run',
+    '--no-default-browser-check', `--user-data-dir=${profile}`, `--screenshot=${target}`, url],
+  { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'ignore'] })
+  console.log('preview:', target)
+}
+
 const problems = []
 for (const windowWidth of [width, 1040]) {
   const { metrics, screenshot } = measureAt(windowWidth, `w${windowWidth}`)
@@ -490,6 +514,12 @@ if (problems.length > 0) {
   process.exit(1)
 }
 console.log('\nlayout ok at both widths')
+if (docs) {
+  // Wide enough that the table fits without scrolling: a preview is not the place to
+  // demonstrate the scrollbar, and a clipped column reads as a bug.
+  renderPreview('frontend', join(root, 'docs/preview-frontend.png'), 1720)
+  renderPreview('node', join(root, 'docs/preview-node.png'), 1720)
+}
 if (!keep) {
   for (const name of ['profile-w' + width, 'profile-w' + width + '-dom', 'profile-w1040', 'profile-w1040-dom']) {
     rmSync(join(work, name), { recursive: true, force: true })

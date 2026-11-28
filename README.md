@@ -9,6 +9,8 @@
 port, on which branch, under which Node. It opens instantly, starts nothing by itself, and treats your
 project directory as read-only.
 
+<img src="docs/preview-frontend.png" alt="前端项目管理：项目地址单列、列宽固定、项目与操作两列冻结" width="100%">
+
 ---
 
 ## 三个系统 · Three systems
@@ -91,6 +93,7 @@ JSON（实测 3 ms），不会遍历项目目录，也不会反复调用 `git`�
 npm run check   # 仓库自检：清单、patch、locale、字典对照、语法、导入接线、死 CSS、测试是否被点名
 npm test        # node --test：行为测试 + 渲染测试（node 18+）
 npm run visual  # 真浏览器里渲染面板并量列宽/冻结列（需要 Chrome，dev-only）
+npm run visual -- --docs  # 顺便重出 docs/preview-*.png（详情页用的预览图）
 ```
 
 自检覆盖的是「装得上、点得开」：BOM、行尾、包名与 patch 是否一致、`meta.detail` 是否指向真实文件、
